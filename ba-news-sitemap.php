@@ -21,9 +21,11 @@ class BA_News_Sitemap {
     const LASTBUILD_KEY = 'ba_news_sitemap_lastbuild';
     const OPT_KEY       = 'ba_news_sitemap_options';
     const PING_THROTTLE_KEY = 'ba_news_sitemap_ping_throttle';
+    const BUILD_LOCK_KEY = 'ba_news_sitemap_build_lock';
 
     // Cron
     const CRON_HOOK     = 'ba_news_sitemap_cron';
+    const PREWARM_HOOK  = 'ba_news_sitemap_prewarm_hook';
     const CRON_SCHED    = 'ba_news_sitemap_ttl';
 
     // Guards
@@ -38,6 +40,7 @@ class BA_News_Sitemap {
         'disable_keywords'     => 0,
         'image_license_url'    => '',
         'enable_pings'         => 1,
+        'excluded_taxonomies'  => [],
         // Hardcoded values for simplicity
         'language'             => '', // Always auto-detect
         'window_hours'         => 48,
@@ -64,15 +67,16 @@ class BA_News_Sitemap {
         add_action( 'parse_request',      [ __CLASS__, 'maybe_catch_direct' ], 0 ); // earliest
         add_action( 'template_redirect',  [ __CLASS__, 'maybe_render' ], 0 );
 
-        // Cache invalidation on content changes
-        add_action( 'save_post',                [ __CLASS__, 'purge_cache' ] );
-        add_action( 'deleted_post',             [ __CLASS__, 'purge_cache' ] );
-        add_action( 'trashed_post',             [ __CLASS__, 'purge_cache' ] );
-        add_action( 'transition_post_status',   [ __CLASS__, 'purge_cache' ], 10, 3 );
+        // Cache invalidation and pre-warming on content changes
+        add_action( 'transition_post_status', [ __CLASS__, 'handle_post_status_change' ], 10, 3 );
+        add_action( 'deleted_post',           [ __CLASS__, 'purge_cache' ] ); // Purge when post is deleted permanently
+        add_action( 'trashed_post',           [ __CLASS__, 'purge_cache' ] ); // Purge when post is moved to trash
 
         // Admin
         add_action( 'admin_menu',  [ __CLASS__, 'admin_menu' ] );
         add_action( 'admin_init',  [ __CLASS__, 'register_settings' ] );
+        add_filter( 'attachment_fields_to_edit', [ __CLASS__, 'add_image_license_field' ], 10, 2 );
+        add_filter( 'attachment_fields_to_save', [ __CLASS__, 'save_image_license_field' ], 10, 2 );
         add_action( 'add_meta_boxes', [ __CLASS__, 'add_meta_box' ] );
         add_action( 'save_post',      [ __CLASS__, 'save_meta_box' ], 10, 2 );
         add_action( 'admin_post_ba_news_sitemap_action', [ __CLASS__, 'handle_admin_action' ] );
@@ -80,6 +84,7 @@ class BA_News_Sitemap {
         // Cron
         add_filter( 'cron_schedules', [ __CLASS__, 'cron_schedules' ] );
         add_action( self::CRON_HOOK,  [ __CLASS__, 'cron_task' ] );
+        add_action( self::PREWARM_HOOK, [ __CLASS__, 'prewarm_cache' ] );
 
         // Options lifecycle
         add_action( 'update_option_' . self::OPT_KEY, [ __CLASS__, 'options_updated' ], 10, 2 );
@@ -197,6 +202,18 @@ class BA_News_Sitemap {
 
         $clean['enable_pings'] = isset( $in['enable_pings'] ) ? 1 : 0;
 
+        // Sanitize the excluded_taxonomies array
+        $clean['excluded_taxonomies'] = [];
+        if ( ! empty( $in['excluded_taxonomies'] ) && is_array( $in['excluded_taxonomies'] ) ) {
+            $supported_taxonomies = ['category', 'post_tag'];
+            foreach ( $supported_taxonomies as $tax_slug ) {
+                if ( ! empty( $in['excluded_taxonomies'][ $tax_slug ] ) && is_array( $in['excluded_taxonomies'][ $tax_slug ] ) ) {
+                    $term_ids = array_map( 'intval', $in['excluded_taxonomies'][ $tax_slug ] );
+                    $clean['excluded_taxonomies'][ $tax_slug ] = array_filter( $term_ids );
+                }
+            }
+        }
+
         return $clean;
     }
 
@@ -208,6 +225,21 @@ class BA_News_Sitemap {
         self::reschedule();
         self::purge_cache();
         self::prewarm_cache();
+    }
+
+    public static function handle_post_status_change( $new_status, $old_status, $post ) {
+        // First, always clear the cache on any status change.
+        self::purge_cache();
+
+        $opt = self::get_options();
+        $sitemap_post_types = (array) ($opt['post_types'] ?? ['post']);
+
+        // If a post is published and it's a type we include in the sitemap, schedule a pre-warm.
+        if ( $new_status === 'publish' && in_array( $post->post_type, $sitemap_post_types, true ) ) {
+            // Schedule a single event to run in 15 seconds.
+            // This is non-blocking and will regenerate the sitemap in the background.
+            wp_schedule_single_event( time() + 15, self::PREWARM_HOOK );
+        }
     }
 
     /* ========= Routing ========= */
@@ -381,6 +413,19 @@ class BA_News_Sitemap {
                         <li><strong>Status:</strong> On &amp; Working</li>
                         <li><strong>Contents:</strong> Currently includes <strong><?php echo esc_html( $article_count ); ?></strong> recent articles</li>
                         <li><strong>Last Updated:</strong> <?php echo esc_html( $last_updated_text ); ?></li>
+                        <?php
+                        $last_ping = get_option('ba_news_sitemap_lastping', []);
+                        if ( ! empty( $last_ping['pinged_at'] ) ) {
+                            $last_ping_time = strtotime( $last_ping['pinged_at'] );
+                            $last_ping_text = sprintf( '%s ago', human_time_diff( $last_ping_time, current_time( 'timestamp', true ) ) );
+
+                            $google_status = $last_ping['results']['google'] ?? 'N/A';
+                            $bing_status = $last_ping['results']['bing'] ?? 'N/A';
+                            $ping_details = "Google: " . esc_html($google_status) . ", Bing: " . esc_html($bing_status);
+
+                            echo '<li><strong>Last Ping:</strong> ' . esc_html( $last_ping_text ) . ' <small>(' . $ping_details . ')</small></li>';
+                        }
+                        ?>
                         <li><strong>News Sitemap Link:</strong> <a href="<?php echo esc_url($news_sitemap_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($news_sitemap_url); ?></a></li>
                         <li><strong>Base Sitemap Index:</strong> <a href="<?php echo esc_url($base_sitemap_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($base_sitemap_url); ?></a></li>
                     </ul>
@@ -492,6 +537,52 @@ class BA_News_Sitemap {
                             <p class="description">This helps search engines discover your new content faster. Pings are sent at most once every 5 minutes.</p>
                         </td>
                     </tr>
+                    <tr valign="top">
+                        <th scope="row">Exclude by Taxonomy</th>
+                        <td>
+                            <p class="description" style="margin-bottom: 1em;">Exclude posts from the sitemap if they have any of the selected terms.</p>
+
+                            <strong>Categories</strong>
+                            <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-top: 5px; margin-bottom: 1em;">
+                                <?php
+                                $categories = get_terms(['taxonomy' => 'category', 'hide_empty' => false]);
+                                $excluded_cats = $opt['excluded_taxonomies']['category'] ?? [];
+                                if ( ! empty( $categories ) && ! is_wp_error( $categories ) ) {
+                                    foreach ($categories as $term) {
+                                        ?>
+                                        <label for="tax_cat_<?php echo esc_attr($term->term_id); ?>" style="display: block; margin-bottom: 5px;">
+                                            <input type="checkbox" id="tax_cat_<?php echo esc_attr($term->term_id); ?>" name="<?php echo esc_attr(self::OPT_KEY); ?>[excluded_taxonomies][category][]" value="<?php echo esc_attr($term->term_id); ?>" <?php checked( in_array( $term->term_id, $excluded_cats ) ); ?>>
+                                            <?php echo esc_html( $term->name ); ?>
+                                        </label>
+                                        <?php
+                                    }
+                                } else {
+                                    echo 'No categories found.';
+                                }
+                                ?>
+                            </div>
+
+                            <strong>Tags</strong>
+                            <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-top: 5px;">
+                                 <?php
+                                $tags = get_terms(['taxonomy' => 'post_tag', 'hide_empty' => false]);
+                                $excluded_tags = $opt['excluded_taxonomies']['post_tag'] ?? [];
+                                if ( ! empty( $tags ) && ! is_wp_error( $tags ) ) {
+                                    foreach ($tags as $term) {
+                                        ?>
+                                        <label for="tax_tag_<?php echo esc_attr($term->term_id); ?>" style="display: block; margin-bottom: 5px;">
+                                            <input type="checkbox" id="tax_tag_<?php echo esc_attr($term->term_id); ?>" name="<?php echo esc_attr(self::OPT_KEY); ?>[excluded_taxonomies][post_tag][]" value="<?php echo esc_attr($term->term_id); ?>" <?php checked( in_array( $term->term_id, $excluded_tags ) ); ?>>
+                                            <?php echo esc_html( $term->name ); ?>
+                                        </label>
+                                        <?php
+                                    }
+                                } else {
+                                    echo 'No tags found.';
+                                }
+                                ?>
+                            </div>
+                        </td>
+                    </tr>
                 </table>
                 <?php submit_button(); ?>
             </form>
@@ -531,6 +622,25 @@ class BA_News_Sitemap {
         }
         wp_safe_redirect( add_query_arg( [ 'page' => 'ba-news-sitemap', 'msg' => 'done' ], admin_url( 'options-general.php' ) ) );
         exit;
+    }
+
+    public static function add_image_license_field( $form_fields, $post ) {
+        $license_url = get_post_meta( $post->ID, '_image_license_url', true );
+        $form_fields['image_license_url'] = [
+            'label' => 'Image License URL',
+            'input' => 'text',
+            'value' => $license_url,
+            'helps' => 'Enter a URL to a page describing the license for this specific image.',
+        ];
+        return $form_fields;
+    }
+
+    public static function save_image_license_field( $post, $attachment ) {
+        if ( isset( $attachment['image_license_url'] ) ) {
+            $url = esc_url_raw( $attachment['image_license_url'] );
+            update_post_meta( $post['ID'], '_image_license_url', $url );
+        }
+        return $post;
     }
 
     /* ========= Post Meta Box ========= */
@@ -661,8 +771,14 @@ class BA_News_Sitemap {
     }
 
     protected static function prewarm_cache() {
+        if ( get_transient( self::BUILD_LOCK_KEY ) ) {
+            return;
+        }
+
         $opt = self::get_options();
         if ( (int) $opt['enabled'] !== 1 ) return;
+
+        set_transient( self::BUILD_LOCK_KEY, true, 2 * MINUTE_IN_SECONDS );
 
         try {
             $start = microtime( true );
@@ -679,16 +795,18 @@ class BA_News_Sitemap {
         } catch ( \Throwable $e ) {
             // In case of failure, don't leave a stale cache.
             set_transient( self::TRANSIENT, self::empty_xml(), (int) $opt['cache_ttl'] );
+        } finally {
+            delete_transient( self::BUILD_LOCK_KEY );
         }
     }
 
-    protected static function do_pings() {
+    protected static function do_pings( $force = false ) {
         $opt = self::get_options();
-        if ( empty( $opt['enable_pings'] ) ) {
+        if ( ! $force && empty( $opt['enable_pings'] ) ) {
             return;
         }
 
-        if ( get_transient( self::PING_THROTTLE_KEY ) ) {
+        if ( ! $force && get_transient( self::PING_THROTTLE_KEY ) ) {
             return;
         }
 
@@ -744,15 +862,27 @@ class BA_News_Sitemap {
         $urlset->setAttribute( 'xmlns', 'http://www.sitemaps.org/schemas/sitemap/0.9' );
         $urlset->setAttribute( 'xmlns:news', 'http://www.google.com/schemas/sitemap-news/0.9' );
         $urlset->setAttribute( 'xmlns:image', 'http://www.google.com/schemas/sitemap-image/1.1' );
+        $urlset->setAttribute( 'xmlns:xhtml', 'http://www.w3.org/1999/xhtml' );
+
+        $site_host = wp_parse_url( home_url(), PHP_URL_HOST );
 
         foreach ( $post_ids as $post_id ) {
             $loc     = get_permalink( $post_id );
             if ( ! $loc ) continue;
+
+            // Single-Host Guard
+            if ( wp_parse_url( $loc, PHP_URL_HOST ) !== $site_host ) {
+                continue;
+            }
             
             if ( (int) $opt['respect_noindex'] === 1 && self::is_noindex( $post_id ) ) continue;
 
             $external_canonical = self::get_external_canonical_url( $post_id );
             if ( $external_canonical && $external_canonical !== $loc ) {
+                continue;
+            }
+
+            if ( apply_filters( 'ba_news_sitemap_exclude_post', false, $post_id ) ) {
                 continue;
             }
 
@@ -765,7 +895,7 @@ class BA_News_Sitemap {
             $url->appendChild( $dom->createElement( 'lastmod', $lastmod ) );
             
             // Add image data
-            $images = self::get_post_images_data( $post_id );
+            $images = apply_filters( 'ba_news_sitemap_images', self::get_post_images_data( $post_id ), $post_id );
             if ( ! empty( $images ) ) {
                 foreach ( $images as $img ) {
                     $image_node = $dom->createElement('image:image');
@@ -781,8 +911,9 @@ class BA_News_Sitemap {
                         $caption_node->appendChild( $dom->createCDATASection( $img['caption'] ) );
                         $image_node->appendChild( $caption_node );
                     }
-                    if ( ! empty( $opt['image_license_url'] ) ) {
-                        $image_node->appendChild( $dom->createElement('image:license', $opt['image_license_url']) );
+                    $license_to_use = ! empty( $img['license_url'] ) ? $img['license_url'] : ( $opt['image_license_url'] ?? '' );
+                    if ( ! empty( $license_to_use ) ) {
+                        $image_node->appendChild( $dom->createElement('image:license', $license_to_use) );
                     }
 
                     $url->appendChild( $image_node );
@@ -800,7 +931,7 @@ class BA_News_Sitemap {
             $titleNode->appendChild( $dom->createCDATASection( $title ) );
             $news->appendChild( $titleNode );
 
-            $genres = self::get_post_genres( $post_id, $opt );
+            $genres = apply_filters( 'ba_news_sitemap_genres', self::get_post_genres( $post_id, $opt ), $post_id );
             if ( ! empty( $genres ) ) {
                 $genresNode = $dom->createElement( 'news:genres' );
                 $genresNode->appendChild( $dom->createCDATASection( implode( ', ', $genres ) ) );
@@ -808,7 +939,7 @@ class BA_News_Sitemap {
             }
             
             if ( empty( $opt['disable_keywords'] ) ) {
-                $keywords = self::post_keywords( $post_id );
+                $keywords = apply_filters( 'ba_news_sitemap_keywords', self::post_keywords( $post_id ), $post_id );
                 if ( ! empty( $keywords ) ) {
                     $kwNode = $dom->createElement( 'news:keywords' );
                     $kwNode->appendChild( $dom->createCDATASection( implode( ', ', array_slice( $keywords, 0, 10 ) ) ) );
@@ -817,6 +948,20 @@ class BA_News_Sitemap {
             }
 
             $url->appendChild( $news );
+
+            $xhtml_links = self::get_xhtml_links_data( $post_id );
+            if ( ! empty( $xhtml_links ) ) {
+                foreach ( $xhtml_links as $link_data ) {
+                    $link_node = $dom->createElement('xhtml:link');
+                    $link_node->setAttribute('rel', $link_data['rel']);
+                    if ( ! empty( $link_data['hreflang'] ) ) {
+                        $link_node->setAttribute('hreflang', $link_data['hreflang']);
+                    }
+                    $link_node->setAttribute('href', $link_data['href']);
+                    $url->appendChild( $link_node );
+                }
+            }
+
             $urlset->appendChild( $url );
         }
 
@@ -833,11 +978,18 @@ class BA_News_Sitemap {
         $xsl_url = plugins_url( 'boardingarea-sitemap.xsl', __FILE__ );
         $out .= '<?xml-stylesheet type="text/xsl" href="' . esc_url( $xsl_url ) . '"?>';
         
-        $out .= '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">';
+        $out .= '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1" xmlns:xhtml="http://www.w3.org/1999/xhtml">';
+
+        $site_host = wp_parse_url( home_url(), PHP_URL_HOST );
 
         foreach ( $post_ids as $post_id ) {
             $loc     = get_permalink( $post_id );
             if ( ! $loc ) continue;
+
+            // Single-Host Guard
+            if ( wp_parse_url( $loc, PHP_URL_HOST ) !== $site_host ) {
+                continue;
+            }
 
             if ( (int) $opt['respect_noindex'] === 1 && self::is_noindex( $post_id ) ) continue;
 
@@ -855,7 +1007,7 @@ class BA_News_Sitemap {
             $out .= '<lastmod>' . esc_html( $lastmod ) . '</lastmod>';
 
             // Add image data
-            $images = self::get_post_images_data( $post_id );
+            $images = apply_filters( 'ba_news_sitemap_images', self::get_post_images_data( $post_id ), $post_id );
             if ( ! empty( $images ) ) {
                 foreach ( $images as $img ) {
                     $out .= '<image:image>';
@@ -866,8 +1018,9 @@ class BA_News_Sitemap {
                     if ( ! empty( $img['caption'] ) ) {
                         $out .= '<image:caption>' . self::cdata( $img['caption'] ) . '</image:caption>';
                     }
-                    if ( ! empty( $opt['image_license_url'] ) ) {
-                        $out .= '<image:license>' . esc_url( $opt['image_license_url'] ) . '</image:license>';
+                    $license_to_use = ! empty( $img['license_url'] ) ? $img['license_url'] : ( $opt['image_license_url'] ?? '' );
+                    if ( ! empty( $license_to_use ) ) {
+                        $out .= '<image:license>' . esc_url( $license_to_use ) . '</image:license>';
                     }
                     $out .= '</image:image>';
                 }
@@ -878,19 +1031,31 @@ class BA_News_Sitemap {
             $out .= '<news:publication_date>' . esc_html( $pubdate ) . '</news:publication_date>';
             $out .= '<news:title>' . $title . '</news:title>';
 
-            $genres = self::get_post_genres( $post_id, $opt );
+            $genres = apply_filters( 'ba_news_sitemap_genres', self::get_post_genres( $post_id, $opt ), $post_id );
             if ( ! empty( $genres ) ) {
                 $out .= '<news:genres>' . self::cdata( implode( ', ', $genres ) ) . '</news:genres>';
             }
 
             if ( empty( $opt['disable_keywords'] ) ) {
-                $keywords = self::post_keywords( $post_id );
+                $keywords = apply_filters( 'ba_news_sitemap_keywords', self::post_keywords( $post_id ), $post_id );
                 if ( ! empty( $keywords ) ) {
                     $out .= '<news:keywords>' . self::cdata( implode( ', ', array_slice( $keywords, 0, 10 ) ) ) . '</news:keywords>';
                 }
             }
 
             $out .= '</news:news>';
+
+            $xhtml_links = self::get_xhtml_links_data( $post_id );
+            if ( ! empty( $xhtml_links ) ) {
+                foreach ( $xhtml_links as $link_data ) {
+                    $out .= '<xhtml:link rel="' . esc_attr($link_data['rel']) . '"';
+                    if ( ! empty( $link_data['hreflang'] ) ) {
+                        $out .= ' hreflang="' . esc_attr($link_data['hreflang']) . '"';
+                    }
+                    $out .= ' href="' . esc_url($link_data['href']) . '" />';
+                }
+            }
+
             $out .= '</url>';
         }
 
@@ -942,11 +1107,23 @@ class BA_News_Sitemap {
             $caption = wp_get_attachment_caption( $id );
 
             $images[] = [
-                'loc' => $img_src[0],
-                'title' => get_the_title( $id ),
-                'caption' => $caption ? $caption : get_post_meta( $id, '_wp_attachment_image_alt', true ),
+                'loc'         => $img_src[0],
+                'width'       => $img_src[1],
+                'title'       => get_the_title( $id ),
+                'caption'     => $caption ? $caption : get_post_meta( $id, '_wp_attachment_image_alt', true ),
+                'license_url' => get_post_meta( $id, '_image_license_url', true ),
             ];
         }
+
+        // 4. Sort images to prefer larger ones
+        usort($images, function( $a, $b ) {
+            $a_large = $a['width'] >= 1200;
+            $b_large = $b['width'] >= 1200;
+            if ( $a_large === $b_large ) {
+                return 0;
+            }
+            return $a_large ? -1 : 1;
+        });
 
         return $images;
     }
@@ -965,8 +1142,25 @@ class BA_News_Sitemap {
             'suppress_filters'    => true, 'fields' => 'ids',
         ];
 
+        if ( ! empty( $opt['excluded_taxonomies'] ) ) {
+            $tax_query = ['relation' => 'AND'];
+            foreach( $opt['excluded_taxonomies'] as $tax => $terms ) {
+                if ( ! empty( $terms ) ) {
+                    $tax_query[] = [
+                        'taxonomy' => $tax,
+                        'field'    => 'term_id',
+                        'terms'    => $terms,
+                        'operator' => 'NOT IN',
+                    ];
+                }
+            }
+            if ( count( $tax_query ) > 1 ) {
+                $args['tax_query'] = $tax_query;
+            }
+        }
+
         $q = new \WP_Query( $args );
-        return $q->posts;
+        return apply_filters( 'ba_news_sitemap_post_ids', $q->posts, $args );
     }
 
     protected static function is_noindex( $post_id ) {
@@ -980,10 +1174,8 @@ class BA_News_Sitemap {
     }
 
     protected static function news_language( $opt ) {
-        if ( ! empty( $opt['language'] ) ) {
-            return strtolower( substr( $opt['language'], 0, 5 ) );
-        }
-        return strtolower( substr( get_locale(), 0, 2 ) );
+        $lang = str_replace( '_', '-', get_locale() );
+        return apply_filters( 'ba_news_sitemap_language', $lang );
     }
 
     protected static function post_keywords( $post_id ) {
@@ -1014,6 +1206,37 @@ class BA_News_Sitemap {
         return $validated;
     }
 
+    protected static function get_xhtml_links_data( $post_id ) {
+        $links = [];
+
+        // AMP integration
+        if ( function_exists( 'amp_get_permalink' ) ) {
+            $amp_url = amp_get_permalink( $post_id );
+            if ( $amp_url ) {
+                $links[] = [
+                    'rel' => 'amphtml',
+                    'href' => $amp_url,
+                ];
+            }
+        }
+
+        // Hreflang integration via filter
+        $hreflang_links = apply_filters( 'ba_news_sitemap_alternates', [], $post_id );
+        if ( ! empty( $hreflang_links ) && is_array( $hreflang_links ) ) {
+            foreach ( $hreflang_links as $lang => $url ) {
+                if ( is_string( $lang ) && is_string( $url ) && strlen( $lang ) > 0 ) {
+                     $links[] = [
+                        'rel' => 'alternate',
+                        'hreflang' => $lang,
+                        'href' => $url,
+                    ];
+                }
+            }
+        }
+
+        return $links;
+    }
+
     protected static function get_external_canonical_url( $post_id ) {
         $canonical_url = null;
 
@@ -1038,17 +1261,71 @@ class BA_News_Sitemap {
     public static function cli( $args, $assoc ) {
         if ( ! class_exists( 'WP_CLI' ) ) return;
         $sub = $args[0] ?? 'help';
+
         switch ( $sub ) {
             case 'rebuild':
             case 'purge':
                 self::prewarm_cache();
                 \WP_CLI::success( 'Cache purged and rebuilt.' );
                 break;
+
             case 'print':
                 \WP_CLI::line( self::safe_build_xml() );
                 break;
+
+            case 'ping':
+                self::do_pings( true );
+                \WP_CLI::success( 'Ping requests sent to Google and Bing.' );
+                break;
+
+            case 'status':
+                $last_build = get_option(self::LASTBUILD_KEY, []);
+                $last_ping = get_option('ba_news_sitemap_lastping', []);
+                if ( empty( $last_build ) ) {
+                    \WP_CLI::line( "Sitemap has not been built yet." );
+                } else {
+                    \WP_CLI::line( "== Sitemap Status ==" );
+                    \WP_CLI::line( "Last built: " . ( $last_build['generated_at'] ?? 'Unknown' ) . " UTC" );
+                    \WP_CLI::line( "Took: " . ( $last_build['took_ms'] ?? 'N/A' ) . " ms" );
+                    \WP_CLI::line( "URL Count: " . ( $last_build['count'] ?? 'N/A' ) );
+                }
+                if ( ! empty( $last_ping ) ) {
+                     \WP_CLI::line( "\n== Last Ping Status ==" );
+                     \WP_CLI::line( "Pinged at: " . ( $last_ping['pinged_at'] ?? 'Unknown' ) . " UTC" );
+                     foreach ( (array) ($last_ping['results'] ?? []) as $engine => $result ) {
+                         \WP_CLI::line( "- $engine: " . $result );
+                     }
+                }
+                break;
+
+            case 'validate':
+                \WP_CLI::line( "Validating sitemap XML..." );
+                $xml = self::safe_build_xml();
+                $dom = new \DOMDocument();
+                libxml_use_internal_errors(true);
+                if ( $dom->loadXML( $xml ) ) {
+                    \WP_CLI::success( "Sitemap XML is well-formed." );
+                } else {
+                    \WP_CLI::error( "Sitemap XML is NOT well-formed." );
+                    foreach (libxml_get_errors() as $error) {
+                        \WP_CLI::line( "  - " . $error->message );
+                    }
+                    libxml_clear_errors();
+                }
+                break;
+
             default:
-                \WP_CLI::line( "Usage:\n  wp ba-news-sitemap rebuild   # Purge cache and rebuild sitemap\n  wp ba-news-sitemap print     # Print XML to stdout" );
+                $help = <<<EOT
+Usage: wp ba-news-sitemap <command>
+
+Commands:
+  rebuild   Purge cache and rebuild sitemap.
+  print     Print sitemap XML to stdout.
+  ping      Force pings to search engines.
+  status    Show last build time, URL count, and last ping status.
+  validate  Check if the generated sitemap XML is well-formed.
+EOT;
+                \WP_CLI::line( $help );
         }
     }
 }

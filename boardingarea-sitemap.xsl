@@ -89,35 +89,39 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Image</th>
-                                    <th>URL</th>
-                                    <th>Article Title</th>
-                                    <th>Keywords</th>
-                                    <th>Publication Date</th>
-                                    <th>Last Modified</th>
+                                    <th style="width: 8%;">Image</th>
+                                    <th style="width: 27%;">URL</th>
+                                    <th style="width: 25%;">Article Title</th>
+                                    <th style="width: 10%;">Keywords</th>
+                                    <th style="width: 10%;">Genres</th>
+                                    <th style="width: 10%;">Publication Date</th>
+                                    <th style="width: 10%;">Last Modified</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <xsl:for-each select="sitemap:urlset/sitemap:url">
                                     <tr>
-                                        <td style="width: 10%;">
+                                        <td>
                                             <xsl:if test="image:image/image:loc">
                                                 <img src="{image:image/image:loc}" alt="Featured Image" />
                                             </xsl:if>
                                         </td>
-                                        <td class="url-cell" style="width: 30%;">
+                                        <td class="url-cell">
                                             <a href="{sitemap:loc}"><xsl:value-of select="sitemap:loc"/></a>
                                         </td>
-                                        <td style="width: 25%;">
+                                        <td>
                                             <xsl:value-of select="news:news/news:title"/>
                                         </td>
-                                        <td style="width: 10%;">
+                                        <td>
                                             <xsl:value-of select="news:news/news:keywords"/>
                                         </td>
-                                        <td style="width: 12.5%;">
+                                        <td>
+                                            <xsl:value-of select="news:news/news:genres"/>
+                                        </td>
+                                        <td>
                                             <xsl:value-of select="news:news/news:publication_date"/>
                                         </td>
-                                        <td style="width: 12.5%;">
+                                        <td>
                                             <xsl:value-of select="sitemap:lastmod"/>
                                         </td>
                                     </tr>
