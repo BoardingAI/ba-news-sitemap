@@ -615,6 +615,8 @@ class BA_News_Sitemap {
                     <p style="font-size: 12px; color: #50575e;">
                         <?php
                         $status_items = [];
+
+                        // Cron Status
                         if ( defined('DISABLE_WP_CRON') && DISABLE_WP_CRON ) {
                             $status_items[] = '<strong>WP-Cron:</strong> <span style="color:#d63638;">Disabled</span>';
                         } else {
@@ -625,11 +627,23 @@ class BA_News_Sitemap {
                                 $status_items[] = '<strong>Next Rebuild:</strong> Not scheduled';
                             }
                         }
+
+                        // Last Build Status
+                        if ( ! empty( $meta['count'] ) ) {
+                             $status_items[] = '<strong>Last Build:</strong> ' . esc_html( sprintf( '%d URLs in %dms', $meta['count'], $meta['took_ms'] ?? 0 ) );
+                        }
+
+                        // Last Ping Status
                         $last_ping = get_option('ba_news_sitemap_lastping', []);
                         if ( ! empty( $last_ping['pinged_at'] ) ) {
                             $last_ping_time = strtotime( $last_ping['pinged_at'] );
-                            $status_items[] = '<strong>Last Ping:</strong> ' . esc_html( sprintf( '%s ago', human_time_diff( $last_ping_time, current_time( 'timestamp', true ) ) ) );
+                            $ping_details = [];
+                            if (isset($last_ping['results']['google'])) $ping_details[] = 'Google: ' . esc_html($last_ping['results']['google']);
+                            if (isset($last_ping['results']['bing'])) $ping_details[] = 'Bing: ' . esc_html($last_ping['results']['bing']);
+
+                            $status_items[] = '<strong>Last Ping:</strong> ' . esc_html( sprintf( '%s ago', human_time_diff( $last_ping_time, current_time( 'timestamp', true ) ) ) ) . ' (' . implode(', ', $ping_details) . ')';
                         }
+
                         echo implode( ' <span style="color: #ddd;">|</span> ', $status_items );
                         ?>
                     </p>
