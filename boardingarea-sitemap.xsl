@@ -89,13 +89,14 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th style="width: 8%;">Image</th>
-                                    <th style="width: 27%;">URL</th>
-                                    <th style="width: 25%;">Article Title</th>
+                                    <th style="width: 7%;">Image</th>
+                                    <th style="width: 25%;">URL</th>
+                                    <th style="width: 23%;">Article Title</th>
                                     <th style="width: 10%;">Keywords</th>
                                     <th style="width: 10%;">Genres</th>
-                                    <th style="width: 10%;">Publication Date</th>
-                                    <th style="width: 10%;">Last Modified</th>
+                                    <th style="width: 10%;">Stock Tickers</th>
+                                    <th style="width: 8%;">Published</th>
+                                    <th style="width: 7%;">Modified</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -117,6 +118,9 @@
                                         </td>
                                         <td>
                                             <xsl:value-of select="news:news/news:genres"/>
+                                        </td>
+                                        <td>
+                                            <xsl:value-of select="news:news/news:stock_tickers"/>
                                         </td>
                                         <td>
                                             <xsl:value-of select="news:news/news:publication_date"/>
