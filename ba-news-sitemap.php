@@ -463,6 +463,7 @@ class BA_News_Sitemap {
             <h2 class="nav-tab-wrapper">
                 <a href="?page=ba-news-sitemap&tab=general" class="nav-tab <?php echo $active_tab == 'general' ? 'nav-tab-active' : ''; ?>" data-tab="general-settings">General Settings</a>
                 <a href="?page=ba-news-sitemap&tab=exclusions" class="nav-tab <?php echo $active_tab == 'exclusions' ? 'nav-tab-active' : ''; ?>" data-tab="exclusion-rules">Exclusion Rules</a>
+                <a href="?page=ba-news-sitemap&tab=advanced" class="nav-tab <?php echo $active_tab == 'advanced' ? 'nav-tab-active' : ''; ?>" data-tab="advanced-settings">Advanced Settings</a>
             </h2>
 
             <form method="post" action="options.php">
@@ -518,15 +519,24 @@ class BA_News_Sitemap {
                                 <p class="description">Select default genres for your articles. You can override this per-post.</p>
                             </td>
                         </tr>
+                    </table>
+                </div>
+
+                <div id="advanced-settings" class="tab-content <?php echo $active_tab == 'advanced' ? 'active' : ''; ?>">
+                     <table class="form-table" role="presentation">
                         <tr valign="top">
-                            <th scope="row">Advanced Options</th>
+                            <th scope="row">Keywords</th>
                             <td>
                                 <label for="ba_news_sitemap_disable_keywords">
                                     <input type="checkbox" id="ba_news_sitemap_disable_keywords" name="<?php echo esc_attr(self::OPT_KEY); ?>[disable_keywords]" value="1" <?php checked( 1, (int) ($opt['disable_keywords'] ?? 0) ); ?>>
                                     Disable News Keywords (Recommended)
                                 </label>
                                 <p class="description">Don't output the <code>&lt;news:keywords&gt;</code> tag. Google ignores this tag.</p>
-                                <br>
+                            </td>
+                        </tr>
+                         <tr valign="top">
+                            <th scope="row">Pinging</th>
+                            <td>
                                 <label for="ba_news_sitemap_enable_pings">
                                     <input type="checkbox" id="ba_news_sitemap_enable_pings" name="<?php echo esc_attr(self::OPT_KEY); ?>[enable_pings]" value="1" <?php checked( 1, (int) ($opt['enable_pings'] ?? 1) ); ?>>
                                     Ping Search Engines
@@ -583,53 +593,48 @@ class BA_News_Sitemap {
                 <?php submit_button(); ?>
             </form>
 
-            <div class="ba-troubleshooting-box">
-                <h2>Troubleshooting &amp; Tools</h2>
-                <div style="margin-top: 1em; display: flex; gap: 2em; justify-content: space-between;">
-                    <div>
-                        <h4>Manual Actions</h4>
-                        <p>If you think your sitemap is out of date, you can manually refresh it.</p>
-                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display: inline-block; margin-right: 1em;">
-                            <?php wp_nonce_field( 'ba_news_sitemap_action' ); ?>
-                            <input type="hidden" name="action" value="ba_news_sitemap_action">
-                            <input type="hidden" name="op" value="rebuild">
-                            <?php submit_button( 'Force Refresh Now', 'secondary', 'submit', false ); ?>
-                        </form>
-                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display: inline-block;">
-                            <?php wp_nonce_field( 'ba_news_sitemap_action' ); ?>
-                            <input type="hidden" name="action" value="ba_news_sitemap_action">
-                            <input type="hidden" name="op" value="ping">
-                            <?php submit_button( 'Manually Ping Google', 'secondary', 'submit', false ); ?>
-                        </form>
-                    </div>
-                    <div>
-                        <h4>System Status</h4>
-                        <ul style="list-style: none; margin: 0; font-size: 14px; line-height: 1.8;">
-                            <?php
-                            if ( defined('DISABLE_WP_CRON') && DISABLE_WP_CRON ) {
-                                echo '<li><strong>WP-Cron:</strong> <span style="color:#d63638;">Disabled</span>. Your site relies on a server-level cron job to run scheduled tasks.</li>';
+            <details class="ba-troubleshooting-box">
+                <summary style="font-size: 1.1em; font-weight: 600; cursor: pointer;">Troubleshooting &amp; Tools</summary>
+                <div style="margin-top: 1em;">
+                    <h4>Manual Actions</h4>
+                    <p>Use these buttons for immediate actions, like refreshing the sitemap or pinging search engines.</p>
+                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display: inline-block; margin-right: 1em;">
+                        <?php wp_nonce_field( 'ba_news_sitemap_action' ); ?>
+                        <input type="hidden" name="action" value="ba_news_sitemap_action">
+                        <input type="hidden" name="op" value="rebuild">
+                        <?php submit_button( 'Force Refresh Now', 'secondary', 'submit', false ); ?>
+                    </form>
+                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display: inline-block;">
+                        <?php wp_nonce_field( 'ba_news_sitemap_action' ); ?>
+                        <input type="hidden" name="action" value="ba_news_sitemap_action">
+                        <input type="hidden" name="op" value="ping">
+                        <?php submit_button( 'Manually Ping Google', 'secondary', 'submit', false ); ?>
+                    </form>
+
+                    <h4 style="margin-top: 2em;">System Status</h4>
+                    <p style="font-size: 12px; color: #50575e;">
+                        <?php
+                        $status_items = [];
+                        if ( defined('DISABLE_WP_CRON') && DISABLE_WP_CRON ) {
+                            $status_items[] = '<strong>WP-Cron:</strong> <span style="color:#d63638;">Disabled</span>';
+                        } else {
+                            $next_run = wp_next_scheduled( self::CRON_HOOK );
+                            if ( $next_run ) {
+                                $status_items[] = '<strong>Next Rebuild:</strong> ' . esc_html( sprintf( '%s from now', human_time_diff( $next_run, current_time( 'timestamp', true ) ) ) );
                             } else {
-                                $next_run = wp_next_scheduled( self::CRON_HOOK );
-                                if ( $next_run ) {
-                                    $next_run_text = sprintf( '%s from now', human_time_diff( $next_run, current_time( 'timestamp', true ) ) );
-                                    echo '<li><strong>Next Scheduled Rebuild:</strong> ' . esc_html( $next_run_text ) . '</li>';
-                                } else {
-                                    echo '<li><strong>Next Scheduled Rebuild:</strong> Not scheduled.</li>';
-                                }
+                                $status_items[] = '<strong>Next Rebuild:</strong> Not scheduled';
                             }
-                            $last_ping = get_option('ba_news_sitemap_lastping', []);
-                            if ( ! empty( $last_ping['pinged_at'] ) ) {
-                                $last_ping_time = strtotime( $last_ping['pinged_at'] );
-                                $last_ping_text = sprintf( '%s ago', human_time_diff( $last_ping_time, current_time( 'timestamp', true ) ) );
-                                $google_status = $last_ping['results']['google'] ?? 'N/A';
-                                $bing_status = $last_ping['results']['bing'] ?? 'N/A';
-                                echo '<li><strong>Last Ping:</strong> ' . esc_html( $last_ping_text ) . ' <small>(Google: ' . esc_html($google_status) . ', Bing: ' . esc_html($bing_status) . ')</small></li>';
-                            }
-                            ?>
-                        </ul>
-                    </div>
+                        }
+                        $last_ping = get_option('ba_news_sitemap_lastping', []);
+                        if ( ! empty( $last_ping['pinged_at'] ) ) {
+                            $last_ping_time = strtotime( $last_ping['pinged_at'] );
+                            $status_items[] = '<strong>Last Ping:</strong> ' . esc_html( sprintf( '%s ago', human_time_diff( $last_ping_time, current_time( 'timestamp', true ) ) ) );
+                        }
+                        echo implode( ' <span style="color: #ddd;">|</span> ', $status_items );
+                        ?>
+                    </p>
                 </div>
-            </div>
+            </details>
         </div>
         <?php
     }
