@@ -33,12 +33,23 @@ class BA_News_Sitemap {
         'enabled'              => 1,
         'publication_name'     => '',
         'post_types'           => ['post'],
+        'default_genres'       => ['Blog'],
+        'disable_keywords'     => 0,
         // Hardcoded values for simplicity
         'language'             => '', // Always auto-detect
         'window_hours'         => 48,
         'max_urls'             => 1000,
         'cache_ttl'            => 600,
         'respect_noindex'      => 1,
+    ];
+
+    private static $allowed_genres = [
+        'PressRelease' => 'Press Release',
+        'Satire'       => 'Satire',
+        'Blog'         => 'Blog',
+        'OpEd'         => 'Op-Ed',
+        'Opinion'      => 'Opinion',
+        'UserGenerated'=> 'User-Generated',
     ];
 
     /* ========= Bootstrap ========= */
@@ -59,6 +70,8 @@ class BA_News_Sitemap {
         // Admin
         add_action( 'admin_menu',  [ __CLASS__, 'admin_menu' ] );
         add_action( 'admin_init',  [ __CLASS__, 'register_settings' ] );
+        add_action( 'add_meta_boxes', [ __CLASS__, 'add_meta_box' ] );
+        add_action( 'save_post',      [ __CLASS__, 'save_meta_box' ], 10, 2 );
         add_action( 'admin_post_ba_news_sitemap_action', [ __CLASS__, 'handle_admin_action' ] );
 
         // Cron
@@ -164,6 +177,18 @@ class BA_News_Sitemap {
         if ( empty( $clean['post_types'] ) ) {
             $clean['post_types'] = ['post'];
         }
+
+        // Sanitize the default_genres array
+        $clean['default_genres'] = [];
+        if ( ! empty( $in['default_genres'] ) && is_array( $in['default_genres'] ) ) {
+            foreach ( $in['default_genres'] as $genre ) {
+                if ( isset( self::$allowed_genres[ $genre ] ) ) {
+                    $clean['default_genres'][] = $genre;
+                }
+            }
+        }
+
+        $clean['disable_keywords'] = isset( $in['disable_keywords'] ) ? 1 : 0;
 
         return $clean;
     }
@@ -384,6 +409,36 @@ class BA_News_Sitemap {
                              <p class="description">Select which types of content to include. It's usually best to only include your main article types, like "Posts".</p>
                         </td>
                     </tr>
+                    <tr valign="top">
+                        <th scope="row">Default News Genres</th>
+                        <td>
+                            <fieldset>
+                                <legend class="screen-reader-text"><span>Default News Genres</span></legend>
+                                <?php
+                                $saved_genres = (array) ($opt['default_genres'] ?? []);
+                                foreach ( self::$allowed_genres as $token => $label ) {
+                                    ?>
+                                    <label for="genre_<?php echo esc_attr($token); ?>" style="display: block; margin-bottom: 5px;">
+                                        <input type="checkbox" id="genre_<?php echo esc_attr($token); ?>" name="<?php echo esc_attr(self::OPT_KEY); ?>[default_genres][]" value="<?php echo esc_attr($token); ?>" <?php checked( in_array( $token, $saved_genres, true ) ); ?>>
+                                        <?php echo esc_html( $label ); ?>
+                                    </label>
+                                    <?php
+                                }
+                                ?>
+                            </fieldset>
+                             <p class="description">Select the default genres that apply to most of your articles. You can override this for individual posts.</p>
+                        </td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row">Disable News Keywords</th>
+                        <td>
+                            <label for="ba_news_sitemap_disable_keywords">
+                                <input type="checkbox" id="ba_news_sitemap_disable_keywords" name="<?php echo esc_attr(self::OPT_KEY); ?>[disable_keywords]" value="1" <?php checked( 1, (int) ($opt['disable_keywords'] ?? 0) ); ?>>
+                                Don't output the <code>&lt;news:keywords&gt;</code> tag.
+                            </label>
+                            <p class="description">This is recommended. Google News largely ignores this tag, and it can sometimes contain low-value terms like "Uncategorized".</p>
+                        </td>
+                    </tr>
                 </table>
                 <?php submit_button(); ?>
             </form>
@@ -423,6 +478,94 @@ class BA_News_Sitemap {
         }
         wp_safe_redirect( add_query_arg( [ 'page' => 'ba-news-sitemap', 'msg' => 'done' ], admin_url( 'options-general.php' ) ) );
         exit;
+    }
+
+    /* ========= Post Meta Box ========= */
+
+    public static function add_meta_box() {
+        $opt = self::get_options();
+        $post_types = (array) ($opt['post_types'] ?? ['post']);
+        foreach ( $post_types as $post_type ) {
+            add_meta_box(
+                'ba_news_sitemap_meta',
+                'Google News Sitemap',
+                [ __CLASS__, 'render_meta_box' ],
+                $post_type,
+                'side',
+                'default'
+            );
+        }
+    }
+
+    public static function render_meta_box( $post ) {
+        wp_nonce_field( 'ba_news_sitemap_meta_save', 'ba_news_sitemap_meta_nonce' );
+
+        $saved_genres = get_post_meta( $post->ID, '_news_genres', true );
+        if ( ! is_array( $saved_genres ) ) $saved_genres = [];
+
+        ?>
+        <p><strong>News Genres</strong></p>
+        <p>Override the site's default genres for this post. If none are selected, the default will be used.</p>
+        <fieldset>
+            <legend class="screen-reader-text">News Genres</legend>
+            <?php
+            foreach ( self::$allowed_genres as $token => $label ) {
+                ?>
+                <label for="genre_meta_<?php echo esc_attr($token); ?>" style="display: block; margin-bottom: 5px;">
+                    <input type="checkbox" id="genre_meta_<?php echo esc_attr($token); ?>" name="_news_genres[]" value="<?php echo esc_attr($token); ?>" <?php checked( in_array( $token, $saved_genres, true ) ); ?>>
+                    <?php echo esc_html( $label ); ?>
+                </label>
+                <?php
+            }
+            ?>
+        </fieldset>
+        <hr style="margin: 1em 0;">
+        <?php
+        $is_excluded = get_post_meta( $post->ID, '_exclude_from_news_sitemap', true );
+        ?>
+        <p><strong>Exclusion</strong></p>
+        <label for="exclude_from_news_sitemap_meta">
+            <input type="checkbox" id="exclude_from_news_sitemap_meta" name="_exclude_from_news_sitemap" value="1" <?php checked( $is_excluded ); ?>>
+            Exclude this post from the news sitemap.
+        </label>
+        <?php
+    }
+
+    public static function save_meta_box( $post_id, $post ) {
+        if ( ! isset( $_POST['ba_news_sitemap_meta_nonce'] ) || ! wp_verify_nonce( $_POST['ba_news_sitemap_meta_nonce'], 'ba_news_sitemap_meta_save' ) ) {
+            return;
+        }
+        if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+            return;
+        }
+        if ( ! current_user_can( 'edit_post', $post_id ) ) {
+            return;
+        }
+        if ( wp_is_post_revision( $post_id ) ) {
+            return;
+        }
+
+        // Save Genres
+        $genres = [];
+        if ( ! empty( $_POST['_news_genres'] ) && is_array( $_POST['_news_genres'] ) ) {
+            foreach ( $_POST['_news_genres'] as $genre ) {
+                if ( isset( self::$allowed_genres[ $genre ] ) ) {
+                    $genres[] = $genre;
+                }
+            }
+        }
+        if ( ! empty( $genres ) ) {
+            update_post_meta( $post_id, '_news_genres', $genres );
+        } else {
+            delete_post_meta( $post_id, '_news_genres' );
+        }
+
+        // Save Exclude from News setting
+        if ( isset( $_POST['_exclude_from_news_sitemap'] ) ) {
+            update_post_meta( $post_id, '_exclude_from_news_sitemap', '1' );
+        } else {
+            delete_post_meta( $post_id, '_exclude_from_news_sitemap' );
+        }
     }
 
     /* ========= Cron / Cache ========= */
@@ -553,12 +696,21 @@ class BA_News_Sitemap {
             $titleNode = $dom->createElement( 'news:title' );
             $titleNode->appendChild( $dom->createCDATASection( $title ) );
             $news->appendChild( $titleNode );
+
+            $genres = self::get_post_genres( $post_id, $opt );
+            if ( ! empty( $genres ) ) {
+                $genresNode = $dom->createElement( 'news:genres' );
+                $genresNode->appendChild( $dom->createCDATASection( implode( ', ', $genres ) ) );
+                $news->appendChild( $genresNode );
+            }
             
-            $keywords = self::post_keywords( $post_id );
-            if ( ! empty( $keywords ) ) {
-                $kwNode = $dom->createElement( 'news:keywords' );
-                $kwNode->appendChild( $dom->createCDATASection( implode( ', ', array_slice( $keywords, 0, 10 ) ) ) );
-                $news->appendChild( $kwNode );
+            if ( empty( $opt['disable_keywords'] ) ) {
+                $keywords = self::post_keywords( $post_id );
+                if ( ! empty( $keywords ) ) {
+                    $kwNode = $dom->createElement( 'news:keywords' );
+                    $kwNode->appendChild( $dom->createCDATASection( implode( ', ', array_slice( $keywords, 0, 10 ) ) ) );
+                    $news->appendChild( $kwNode );
+                }
             }
 
             $url->appendChild( $news );
@@ -608,9 +760,16 @@ class BA_News_Sitemap {
             $out .= '<news:publication_date>' . esc_html( $pubdate ) . '</news:publication_date>';
             $out .= '<news:title>' . $title . '</news:title>';
 
-            $keywords = self::post_keywords( $post_id );
-            if ( ! empty( $keywords ) ) {
-                $out .= '<news:keywords>' . self::cdata( implode( ', ', array_slice( $keywords, 0, 10 ) ) ) . '</news:keywords>';
+            $genres = self::get_post_genres( $post_id, $opt );
+            if ( ! empty( $genres ) ) {
+                $out .= '<news:genres>' . self::cdata( implode( ', ', $genres ) ) . '</news:genres>';
+            }
+
+            if ( empty( $opt['disable_keywords'] ) ) {
+                $keywords = self::post_keywords( $post_id );
+                if ( ! empty( $keywords ) ) {
+                    $out .= '<news:keywords>' . self::cdata( implode( ', ', array_slice( $keywords, 0, 10 ) ) ) . '</news:keywords>';
+                }
             }
 
             $out .= '</news:news>';
@@ -673,7 +832,29 @@ class BA_News_Sitemap {
     protected static function post_keywords( $post_id ) {
         $terms = wp_get_post_terms( $post_id, [ 'category', 'post_tag' ], [ 'fields' => 'names' ] );
         if ( is_wp_error( $terms ) || empty( $terms ) ) return [];
-        return array_values( array_unique( array_filter( array_map( 'trim', $terms ) ) ) );
+
+        $keywords = array_values( array_unique( array_filter( array_map( 'trim', $terms ) ) ) );
+
+        // Suppress if the only keyword is "Uncategorized"
+        if ( count( $keywords ) === 1 && $keywords[0] === 'Uncategorized' ) {
+            return [];
+        }
+
+        return $keywords;
+    }
+
+    protected static function get_post_genres( $post_id, $opt ) {
+        $genres = get_post_meta( $post_id, '_news_genres', true );
+        if ( ! is_array( $genres ) || empty( $genres ) ) {
+            $genres = (array) ($opt['default_genres'] ?? []);
+        }
+        $validated = [];
+        foreach( $genres as $genre ) {
+            if ( isset( self::$allowed_genres[ $genre ] ) ) {
+                $validated[] = $genre;
+            }
+        }
+        return $validated;
     }
 
     /* ========= WP-CLI ========= */
