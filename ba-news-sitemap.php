@@ -58,9 +58,15 @@ class BA_News_Sitemap {
         'UserGenerated'=> 'User-Generated',
     ];
 
+    private static $travel_stock_tickers = null;
+
     /* ========= Bootstrap ========= */
 
     public static function init() {
+        if (self::$travel_stock_tickers === null) {
+            self::$travel_stock_tickers = require_once plugin_dir_path( __FILE__ ) . 'ba-sitemap-ticker-data.php';
+        }
+
         // Routing & request capture (rewrite or no rewrite)
         add_action( 'init',               [ __CLASS__, 'add_rewrite' ] );
         add_filter( 'query_vars',         [ __CLASS__, 'query_vars' ] );
@@ -383,270 +389,220 @@ class BA_News_Sitemap {
         $meta = get_option( self::LASTBUILD_KEY, [] );
         $news_sitemap_url = home_url( '/news-sitemap.xml' );
         $base_sitemap_url = home_url( '/sitemap_index.xml' );
-        $active_tab = isset( $_GET['tab'] ) && in_array( $_GET['tab'], ['exclusions', 'tools'] ) ? $_GET['tab'] : 'general';
         ?>
-        <style>
-            .nav-tab-wrapper { margin-bottom: 20px; }
-            .tab-content { display: none; }
-            .tab-content.active { display: block; }
-            .ba-status-box { margin: 2em 0; padding: 1em 1.5em; background: #fff; box-shadow: 0 1px 1px rgba(0,0,0,.04); border-left-width: 4px; border-left-style: solid; }
-            .ba-status-box-active { border-left-color: #72aee6; }
-            .ba-status-box-inactive { border-left-color: #d63638; }
-            .ba-status-box h2 { margin-top: 0; }
-            .ba-status-box ul { list-style: none; margin: 0; font-size: 14px; line-height: 1.8; }
-            .ba-status-box strong { color: #2271b1; }
-            .ba-troubleshooting-box { margin-top: 2em; border: 1px solid #c3c4c7; padding: 1em; background: #fff; }
-        </style>
-        <script>
-            document.addEventListener('DOMContentLoaded', function() {
-                var tabs = document.querySelectorAll('.nav-tab');
-                var tabContents = document.querySelectorAll('.tab-content');
-
-                tabs.forEach(function(tab) {
-                    tab.addEventListener('click', function(e) {
-                        e.preventDefault();
-
-                        tabs.forEach(function(t) { t.classList.remove('nav-tab-active'); });
-                        tabContents.forEach(function(c) { c.classList.remove('active'); });
-
-                        tab.classList.add('nav-tab-active');
-                        document.getElementById(tab.dataset.tab).classList.add('active');
-
-                        // Update URL for bookmarking
-                        var newUrl = new URL(window.location.href);
-                        newUrl.searchParams.set('tab', tab.dataset.tab);
-                        window.history.replaceState({path: newUrl.href}, '', newUrl.href);
-                    });
-                });
-            });
-        </script>
-
         <div class="wrap">
             <h1>BoardingArea News Sitemap</h1>
             <p style="font-size: 1.1em; color: #50575e;">This plugin automatically creates and updates a special sitemap to help Google find your latest articles faster.</p>
 
             <?php if ( isset($_GET['settings-updated']) ): ?>
-                <div class="notice notice-success is-dismissible"><p><strong>Settings saved.</strong></p></div>
-            <?php elseif ( isset($_GET['msg']) && $_GET['msg'] === 'rebuilt' ): ?>
-                <div class="notice notice-success is-dismissible"><p><strong>Sitemap cache has been cleared and rebuilt.</strong></p></div>
-            <?php elseif ( isset($_GET['msg']) && $_GET['msg'] === 'pinged' ): ?>
-                 <div class="notice notice-success is-dismissible"><p><strong>Ping requests have been sent to Google and Bing.</strong></p></div>
+                <div id="setting-error-settings_updated" class="notice notice-success settings-error is-dismissible">
+                    <p><strong>Settings saved.</strong></p>
+                </div>
             <?php endif; ?>
 
-            <div class="ba-status-box <?php echo (int)$opt['enabled'] === 1 ? 'ba-status-box-active' : 'ba-status-box-inactive'; ?>">
-                <h2>Sitemap Status</h2>
+            <div style="margin: 2em 0; padding: 1em 1.5em; background: #fff; border-left: 4px solid <?php echo (int)$opt['enabled'] === 1 ? '#72aee6' : '#d63638'; ?>; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                <h2 style="margin-top: 0;">Sitemap Status</h2>
                 <?php if ( (int) $opt['enabled'] === 1 ): ?>
-                    <p style="font-size: 16px; margin: 1em 0;">Your news sitemap is <strong>Active</strong> and running smoothly.</p>
-                    <ul>
-                        <?php
-                        $article_count = $meta['count'] ?? 0;
-                        $last_updated_text = 'Never';
-                        if ( ! empty( $meta['generated_at'] ) ) {
-                            $last_build_time = strtotime( $meta['generated_at'] );
-                            if ( $last_build_time ) {
-                                $last_updated_text = sprintf( '%s ago', human_time_diff( $last_build_time, current_time( 'timestamp', true ) ) );
-                            }
+                    <?php
+                    $status_text = '<span style="color: #2271b1; font-weight: 600;">Active</span>';
+                    $article_count = $meta['count'] ?? 0;
+                    $last_updated_text = 'Never';
+                    if ( ! empty( $meta['generated_at'] ) ) {
+                        $last_build_time = strtotime( $meta['generated_at'] );
+                        if ( $last_build_time ) {
+                            $last_updated_text = sprintf( '%s ago', human_time_diff( $last_build_time, current_time( 'timestamp', true ) ) );
                         }
-                        ?>
+                    }
+                    ?>
+                    <p style="font-size: 16px; margin: 1em 0;">Your news sitemap is <?php echo $status_text; ?> and running smoothly.</p>
+                    <ul style="list-style: none; margin: 0; font-size: 14px; line-height: 1.8;">
+                        <li><strong>Status:</strong> On &amp; Working</li>
                         <li><strong>Contents:</strong> Currently includes <strong><?php echo esc_html( $article_count ); ?></strong> recent articles</li>
                         <li><strong>Last Updated:</strong> <?php echo esc_html( $last_updated_text ); ?></li>
+                        <?php
+                        $last_ping = get_option('ba_news_sitemap_lastping', []);
+                        if ( ! empty( $last_ping['pinged_at'] ) ) {
+                            $last_ping_time = strtotime( $last_ping['pinged_at'] );
+                            $last_ping_text = sprintf( '%s ago', human_time_diff( $last_ping_time, current_time( 'timestamp', true ) ) );
+
+                            $google_status = $last_ping['results']['google'] ?? 'N/A';
+                            $bing_status = $last_ping['results']['bing'] ?? 'N/A';
+                            $ping_details = "Google: " . esc_html($google_status) . ", Bing: " . esc_html($bing_status);
+
+                            echo '<li><strong>Last Ping:</strong> ' . esc_html( $last_ping_text ) . ' <small>(' . $ping_details . ')</small></li>';
+                        }
+                        ?>
                         <li><strong>News Sitemap Link:</strong> <a href="<?php echo esc_url($news_sitemap_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($news_sitemap_url); ?></a></li>
+                        <li><strong>Base Sitemap Index:</strong> <a href="<?php echo esc_url($base_sitemap_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($base_sitemap_url); ?></a></li>
                     </ul>
                 <?php else: ?>
-                    <p style="font-size: 16px; margin: 1em 0;">Your news sitemap is <strong>Inactive</strong>.</p>
-                     <ul>
+                    <?php $status_text = '<span style="color: #d63638; font-weight: 600;">Inactive</span>'; ?>
+                    <p style="font-size: 16px; margin: 1em 0;">Your news sitemap is currently <?php echo $status_text; ?>.</p>
+                     <ul style="list-style: none; margin: 0; font-size: 14px; line-height: 1.8;">
+                        <li><strong>Status:</strong> Off &amp; Disabled</li>
+                        <li><strong>Contents:</strong> 0 articles</li>
+                        <li><strong>Last Updated:</strong> N/A</li>
                         <li><strong>News Sitemap Link:</strong> <code><?php echo esc_html($news_sitemap_url); ?></code> (disabled)</li>
+                        <li><strong>Base Sitemap Index:</strong> <a href="<?php echo esc_url($base_sitemap_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($base_sitemap_url); ?></a></li>
                     </ul>
                 <?php endif; ?>
             </div>
 
-            <h2 class="nav-tab-wrapper">
-                <a href="?page=ba-news-sitemap&tab=general" class="nav-tab <?php echo $active_tab == 'general' ? 'nav-tab-active' : ''; ?>" data-tab="general-settings">General Settings</a>
-                <a href="?page=ba-news-sitemap&tab=exclusions" class="nav-tab <?php echo $active_tab == 'exclusions' ? 'nav-tab-active' : ''; ?>" data-tab="exclusion-rules">Exclusion Rules</a>
-                <a href="?page=ba-news-sitemap&tab=advanced" class="nav-tab <?php echo $active_tab == 'advanced' ? 'nav-tab-active' : ''; ?>" data-tab="advanced-settings">Advanced Settings</a>
-            </h2>
-
             <form method="post" action="options.php">
                 <?php settings_fields( 'ba_news_sitemap' ); ?>
 
-                <div id="general-settings" class="tab-content <?php echo $active_tab == 'general' ? 'active' : ''; ?>">
-                    <table class="form-table" role="presentation">
-                         <tr valign="top">
-                            <th scope="row">Enable Sitemap</th>
-                            <td>
-                                <label for="ba_news_sitemap_enabled">
-                                    <input type="checkbox" id="ba_news_sitemap_enabled" name="<?php echo esc_attr(self::OPT_KEY); ?>[enabled]" value="1" <?php checked( 1, (int) $opt['enabled'] ); ?>>
-                                    Automatically create and update the News Sitemap.
-                                </label>
-                            </td>
-                        </tr>
-                        <tr valign="top">
-                            <th scope="row"><label for="ba_news_sitemap_publication_name">Publication Name</label></th>
-                            <td>
-                                <input type="text" id="ba_news_sitemap_publication_name" class="regular-text" name="<?php echo esc_attr(self::OPT_KEY); ?>[publication_name]" value="<?php echo esc_attr( $opt['publication_name'] ); ?>" placeholder="<?php echo esc_attr( get_bloginfo('name') ); ?>">
-                                <p class="description">The name of your blog as it should appear in Google News. Defaults to your site title.</p>
-                            </td>
-                        </tr>
-                        <tr valign="top">
-                            <th scope="row">Include Content Types</th>
-                            <td>
-                                <fieldset>
-                                    <legend class="screen-reader-text"><span>Include Content Types</span></legend>
+                <h2>Settings</h2>
+                <table class="form-table" role="presentation">
+                    <tr valign="top">
+                        <th scope="row">Enable Sitemap</th>
+                        <td>
+                            <label for="ba_news_sitemap_enabled">
+                                <input type="checkbox" id="ba_news_sitemap_enabled" name="<?php echo esc_attr(self::OPT_KEY); ?>[enabled]" value="1" <?php checked( 1, (int) $opt['enabled'] ); ?>>
+                                Automatically create and update the News Sitemap.
+                            </label>
+                        </td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row">
+                            <label for="ba_news_sitemap_publication_name">Publication Name</label>
+                        </th>
+                        <td>
+                            <input type="text" id="ba_news_sitemap_publication_name" class="regular-text" name="<?php echo esc_attr(self::OPT_KEY); ?>[publication_name]" value="<?php echo esc_attr( $opt['publication_name'] ); ?>" placeholder="<?php echo esc_attr( get_bloginfo('name') ); ?>">
+                            <p class="description">The name of your blog as it should appear in Google News. Defaults to your site title.</p>
+                        </td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row">Include Content Types</th>
+                        <td>
+                            <fieldset>
+                                <legend class="screen-reader-text"><span>Include Content Types</span></legend>
+                                <?php
+                                $post_types = get_post_types( [ 'public' => true ], 'objects' );
+                                unset($post_types['attachment']); // Attachments should not be in sitemaps
+                                $saved_post_types = (array) $opt['post_types'];
+
+                                foreach ( $post_types as $slug => $pt ) {
+                                    ?>
+                                    <label for="pt_<?php echo esc_attr($slug); ?>" style="display: block; margin-bottom: 5px;">
+                                        <input type="checkbox" id="pt_<?php echo esc_attr($slug); ?>" name="<?php echo esc_attr(self::OPT_KEY); ?>[post_types][]" value="<?php echo esc_attr($slug); ?>" <?php checked( in_array( $slug, $saved_post_types, true ) ); ?>>
+                                        <?php echo esc_html( $pt->label ); ?>
+                                    </label>
                                     <?php
-                                    $post_types = get_post_types( [ 'public' => true ], 'objects' );
-                                    unset($post_types['attachment']);
-                                    $saved_post_types = (array) $opt['post_types'];
-                                    foreach ( $post_types as $slug => $pt ) {
-                                        echo '<label style="display: block; margin-bottom: 5px;"><input type="checkbox" name="' . esc_attr(self::OPT_KEY) . '[post_types][]" value="' . esc_attr($slug) . '" ' . checked( in_array( $slug, $saved_post_types, true ), true, false ) . '> ' . esc_html( $pt->label ) . '</label>';
+                                }
+                                ?>
+                            </fieldset>
+                             <p class="description">Select which types of content to include. It's usually best to only include your main article types, like "Posts".</p>
+                        </td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row">Default News Genres</th>
+                        <td>
+                            <fieldset>
+                                <legend class="screen-reader-text"><span>Default News Genres</span></legend>
+                                <?php
+                                $saved_genres = (array) ($opt['default_genres'] ?? []);
+                                foreach ( self::$allowed_genres as $token => $label ) {
+                                    ?>
+                                    <label for="genre_<?php echo esc_attr($token); ?>" style="display: block; margin-bottom: 5px;">
+                                        <input type="checkbox" id="genre_<?php echo esc_attr($token); ?>" name="<?php echo esc_attr(self::OPT_KEY); ?>[default_genres][]" value="<?php echo esc_attr($token); ?>" <?php checked( in_array( $token, $saved_genres, true ) ); ?>>
+                                        <?php echo esc_html( $label ); ?>
+                                    </label>
+                                    <?php
+                                }
+                                ?>
+                            </fieldset>
+                             <p class="description">Select the default genres that apply to most of your articles. You can override this for individual posts.</p>
+                        </td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row">Disable News Keywords</th>
+                        <td>
+                            <label for="ba_news_sitemap_disable_keywords">
+                                <input type="checkbox" id="ba_news_sitemap_disable_keywords" name="<?php echo esc_attr(self::OPT_KEY); ?>[disable_keywords]" value="1" <?php checked( 1, (int) ($opt['disable_keywords'] ?? 0) ); ?>>
+                                Don't output the <code>&lt;news:keywords&gt;</code> tag.
+                            </label>
+                            <p class="description">This is recommended. Google News largely ignores this tag, and it can sometimes contain low-value terms like "Uncategorized".</p>
+                        </td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row">
+                            <label for="ba_news_sitemap_image_license_url">Default Image License URL</label>
+                        </th>
+                        <td>
+                            <input type="url" id="ba_news_sitemap_image_license_url" class="regular-text" name="<?php echo esc_attr(self::OPT_KEY); ?>[image_license_url]" value="<?php echo esc_attr( $opt['image_license_url'] ); ?>" placeholder="https://example.com/image-licenses/">
+                            <p class="description">Optional. Provide a URL to a page that describes the licenses covering the images in your articles. This can help get a "Licensable" badge in Google Images.</p>
+                        </td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row">Ping Search Engines</th>
+                        <td>
+                            <label for="ba_news_sitemap_enable_pings">
+                                <input type="checkbox" id="ba_news_sitemap_enable_pings" name="<?php echo esc_attr(self::OPT_KEY); ?>[enable_pings]" value="1" <?php checked( 1, (int) ($opt['enable_pings'] ?? 1) ); ?>>
+                                Automatically ping Google and Bing when the sitemap is updated.
+                            </label>
+                            <p class="description">This helps search engines discover your new content faster. Pings are sent at most once every 5 minutes.</p>
+                        </td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row">Exclude by Taxonomy</th>
+                        <td>
+                            <p class="description" style="margin-bottom: 1em;">Exclude posts from the sitemap if they have any of the selected terms.</p>
+
+                            <strong>Categories</strong>
+                            <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-top: 5px; margin-bottom: 1em;">
+                                <?php
+                                $categories = get_terms(['taxonomy' => 'category', 'hide_empty' => false]);
+                                $excluded_cats = $opt['excluded_taxonomies']['category'] ?? [];
+                                if ( ! empty( $categories ) && ! is_wp_error( $categories ) ) {
+                                    foreach ($categories as $term) {
+                                        ?>
+                                        <label for="tax_cat_<?php echo esc_attr($term->term_id); ?>" style="display: block; margin-bottom: 5px;">
+                                            <input type="checkbox" id="tax_cat_<?php echo esc_attr($term->term_id); ?>" name="<?php echo esc_attr(self::OPT_KEY); ?>[excluded_taxonomies][category][]" value="<?php echo esc_attr($term->term_id); ?>" <?php checked( in_array( $term->term_id, $excluded_cats ) ); ?>>
+                                            <?php echo esc_html( $term->name ); ?>
+                                        </label>
+                                        <?php
                                     }
-                                    ?>
-                                </fieldset>
-                                <p class="description">Select which types of content to include. It's usually best to only include "Posts".</p>
-                            </td>
-                        </tr>
-                        <tr valign="top">
-                            <th scope="row">Default News Genres</th>
-                            <td>
-                                <fieldset>
-                                    <legend class="screen-reader-text"><span>Default News Genres</span></legend>
-                                    <?php
-                                    $saved_genres = (array) ($opt['default_genres'] ?? []);
-                                    foreach ( self::$allowed_genres as $token => $label ) {
-                                        echo '<label style="display: block; margin-bottom: 5px;"><input type="checkbox" name="' . esc_attr(self::OPT_KEY) . '[default_genres][]" value="' . esc_attr($token) . '" ' . checked( in_array( $token, $saved_genres, true ), true, false ) . '> ' . esc_html( $label ) . '</label>';
+                                } else {
+                                    echo 'No categories found.';
+                                }
+                                ?>
+                            </div>
+
+                            <strong>Tags</strong>
+                            <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-top: 5px;">
+                                 <?php
+                                $tags = get_terms(['taxonomy' => 'post_tag', 'hide_empty' => false]);
+                                $excluded_tags = $opt['excluded_taxonomies']['post_tag'] ?? [];
+                                if ( ! empty( $tags ) && ! is_wp_error( $tags ) ) {
+                                    foreach ($tags as $term) {
+                                        ?>
+                                        <label for="tax_tag_<?php echo esc_attr($term->term_id); ?>" style="display: block; margin-bottom: 5px;">
+                                            <input type="checkbox" id="tax_tag_<?php echo esc_attr($term->term_id); ?>" name="<?php echo esc_attr(self::OPT_KEY); ?>[excluded_taxonomies][post_tag][]" value="<?php echo esc_attr($term->term_id); ?>" <?php checked( in_array( $term->term_id, $excluded_tags ) ); ?>>
+                                            <?php echo esc_html( $term->name ); ?>
+                                        </label>
+                                        <?php
                                     }
-                                    ?>
-                                </fieldset>
-                                <p class="description">Select default genres for your articles. You can override this per-post.</p>
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-
-                <div id="advanced-settings" class="tab-content <?php echo $active_tab == 'advanced' ? 'active' : ''; ?>">
-                     <table class="form-table" role="presentation">
-                        <tr valign="top">
-                            <th scope="row">Keywords</th>
-                            <td>
-                                <label for="ba_news_sitemap_disable_keywords">
-                                    <input type="checkbox" id="ba_news_sitemap_disable_keywords" name="<?php echo esc_attr(self::OPT_KEY); ?>[disable_keywords]" value="1" <?php checked( 1, (int) ($opt['disable_keywords'] ?? 0) ); ?>>
-                                    Disable News Keywords (Recommended)
-                                </label>
-                                <p class="description">Don't output the <code>&lt;news:keywords&gt;</code> tag. Google ignores this tag.</p>
-                            </td>
-                        </tr>
-                         <tr valign="top">
-                            <th scope="row">Pinging</th>
-                            <td>
-                                <label for="ba_news_sitemap_enable_pings">
-                                    <input type="checkbox" id="ba_news_sitemap_enable_pings" name="<?php echo esc_attr(self::OPT_KEY); ?>[enable_pings]" value="1" <?php checked( 1, (int) ($opt['enable_pings'] ?? 1) ); ?>>
-                                    Ping Search Engines
-                                </label>
-                                <p class="description">Automatically ping Google and Bing on update. Pings are throttled to once every 5 minutes.</p>
-                            </td>
-                        </tr>
-                        <tr valign="top">
-                            <th scope="row"><label for="ba_news_sitemap_image_license_url">Default Image License URL</label></th>
-                            <td>
-                                <input type="url" id="ba_news_sitemap_image_license_url" class="regular-text" name="<?php echo esc_attr(self::OPT_KEY); ?>[image_license_url]" value="<?php echo esc_attr( $opt['image_license_url'] ); ?>" placeholder="https://example.com/image-licenses/">
-                                <p class="description">Optional. URL to a page describing licenses for your images. Can help get a "Licensable" badge in Google Images.</p>
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-
-                <div id="exclusion-rules" class="tab-content <?php echo $active_tab == 'exclusions' ? 'active' : ''; ?>">
-                    <p>Exclude posts from the sitemap if they have any of the selected taxonomy terms.</p>
-                    <table class="form-table" role="presentation">
-                        <tr valign="top">
-                            <th scope="row">Exclude by Taxonomy</th>
-                            <td>
-                                <strong>Categories</strong>
-                                <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-top: 5px; margin-bottom: 1em;">
-                                    <?php
-                                    $categories = get_terms(['taxonomy' => 'category', 'hide_empty' => false]);
-                                    $excluded_cats = $opt['excluded_taxonomies']['category'] ?? [];
-                                    if ( ! empty( $categories ) && ! is_wp_error( $categories ) ) {
-                                        foreach ($categories as $term) {
-                                            echo '<label style="display: block; margin-bottom: 5px;"><input type="checkbox" name="' . esc_attr(self::OPT_KEY) . '[excluded_taxonomies][category][]" value="' . esc_attr($term->term_id) . '" ' . checked( in_array( $term->term_id, $excluded_cats ), true, false ) . '> ' . esc_html( $term->name ) . '</label>';
-                                        }
-                                    } else { echo 'No categories found.'; }
-                                    ?>
-                                </div>
-
-                                <strong>Tags</strong>
-                                <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-top: 5px;">
-                                    <?php
-                                    $tags = get_terms(['taxonomy' => 'post_tag', 'hide_empty' => false]);
-                                    $excluded_tags = $opt['excluded_taxonomies']['post_tag'] ?? [];
-                                    if ( ! empty( $tags ) && ! is_wp_error( $tags ) ) {
-                                        foreach ($tags as $term) {
-                                            echo '<label style="display: block; margin-bottom: 5px;"><input type="checkbox" name="' . esc_attr(self::OPT_KEY) . '[excluded_taxonomies][post_tag][]" value="' . esc_attr($term->term_id) . '" ' . checked( in_array( $term->term_id, $excluded_tags ), true, false ) . '> ' . esc_html( $term->name ) . '</label>';
-                                        }
-                                    } else { echo 'No tags found.'; }
-                                    ?>
-                                </div>
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-
+                                } else {
+                                    echo 'No tags found.';
+                                }
+                                ?>
+                            </div>
+                        </td>
+                    </tr>
+                </table>
                 <?php submit_button(); ?>
             </form>
 
-            <details class="ba-troubleshooting-box">
+            <details style="margin-top: 2em; border: 1px solid #c3c4c7; padding: 1em; background: #fff;">
                 <summary style="font-size: 1.1em; font-weight: 600; cursor: pointer;">Troubleshooting &amp; Tools</summary>
                 <div style="margin-top: 1em;">
-                    <h4>Manual Actions</h4>
-                    <p>Use these buttons for immediate actions, like refreshing the sitemap or pinging search engines.</p>
-                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display: inline-block; margin-right: 1em;">
+                    <p>If you think your sitemap is out of date or not showing your latest post, you can manually refresh it.</p>
+                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
                         <?php wp_nonce_field( 'ba_news_sitemap_action' ); ?>
                         <input type="hidden" name="action" value="ba_news_sitemap_action">
                         <input type="hidden" name="op" value="rebuild">
                         <?php submit_button( 'Force Refresh Now', 'secondary', 'submit', false ); ?>
                     </form>
-                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display: inline-block;">
-                        <?php wp_nonce_field( 'ba_news_sitemap_action' ); ?>
-                        <input type="hidden" name="action" value="ba_news_sitemap_action">
-                        <input type="hidden" name="op" value="ping">
-                        <?php submit_button( 'Manually Ping Google', 'secondary', 'submit', false ); ?>
-                    </form>
-
-                    <h4 style="margin-top: 2em;">System Status</h4>
-                    <p style="font-size: 12px; color: #50575e;">
-                        <?php
-                        $status_items = [];
-
-                        // Cron Status
-                        if ( defined('DISABLE_WP_CRON') && DISABLE_WP_CRON ) {
-                            $status_items[] = '<strong>WP-Cron:</strong> <span style="color:#d63638;">Disabled</span>';
-                        } else {
-                            $next_run = wp_next_scheduled( self::CRON_HOOK );
-                            if ( $next_run ) {
-                                $status_items[] = '<strong>Next Rebuild:</strong> ' . esc_html( sprintf( '%s from now', human_time_diff( $next_run, current_time( 'timestamp', true ) ) ) );
-                            } else {
-                                $status_items[] = '<strong>Next Rebuild:</strong> Not scheduled';
-                            }
-                        }
-
-                        // Last Build Status
-                        if ( ! empty( $meta['count'] ) ) {
-                             $status_items[] = '<strong>Last Build:</strong> ' . esc_html( sprintf( '%d URLs in %dms', $meta['count'], $meta['took_ms'] ?? 0 ) );
-                        }
-
-                        // Last Ping Status
-                        $last_ping = get_option('ba_news_sitemap_lastping', []);
-                        if ( ! empty( $last_ping['pinged_at'] ) ) {
-                            $last_ping_time = strtotime( $last_ping['pinged_at'] );
-                            $ping_details = [];
-                            if (isset($last_ping['results']['google'])) $ping_details[] = 'Google: ' . esc_html($last_ping['results']['google']);
-                            if (isset($last_ping['results']['bing'])) $ping_details[] = 'Bing: ' . esc_html($last_ping['results']['bing']);
-
-                            $status_items[] = '<strong>Last Ping:</strong> ' . esc_html( sprintf( '%s ago', human_time_diff( $last_ping_time, current_time( 'timestamp', true ) ) ) ) . ' (' . implode(', ', $ping_details) . ')';
-                        }
-
-                        echo implode( ' <span style="color: #ddd;">|</span> ', $status_items );
-                        ?>
-                    </p>
                 </div>
             </details>
         </div>
@@ -665,18 +621,12 @@ class BA_News_Sitemap {
         check_admin_referer( 'ba_news_sitemap_action' );
 
         $op = isset( $_POST['op'] ) ? sanitize_key( $_POST['op'] ) : '';
-        $msg = 'done';
         switch ( $op ) {
             case 'rebuild':
                 self::prewarm_cache();
-                $msg = 'rebuilt';
-                break;
-            case 'ping':
-                self::do_pings(true);
-                $msg = 'pinged';
                 break;
         }
-        wp_safe_redirect( add_query_arg( [ 'page' => 'ba-news-sitemap', 'msg' => $msg ], admin_url( 'options-general.php' ) ) );
+        wp_safe_redirect( add_query_arg( [ 'page' => 'ba-news-sitemap', 'msg' => 'done' ], admin_url( 'options-general.php' ) ) );
         exit;
     }
 
@@ -740,10 +690,138 @@ class BA_News_Sitemap {
         </fieldset>
         <hr style="margin: 1em 0;">
         <p><strong>Stock Tickers</strong></p>
-        <?php $stock_tickers = get_post_meta( $post->ID, '_news_stock_tickers', true ); ?>
-        <label for="ba_news_sitemap_stock_tickers" class="screen-reader-text">Stock Tickers</label>
-        <input type="text" id="ba_news_sitemap_stock_tickers" name="_news_stock_tickers" value="<?php echo esc_attr( $stock_tickers ); ?>" class="widefat" placeholder="e.g. NASDAQ:AAL, NYSE:DAL">
-        <p class="description">Optional. Add comma-separated stock tickers relevant to this article.</p>
+        <p class="description" style="margin-bottom: 0.5em;">Select up to 5 relevant stock tickers.</p>
+        <div class="ba-ticker-select-wrap">
+            <div class="ba-ticker-selected-list"></div>
+            <input type="text" class="ba-ticker-search" placeholder="Search for a company or ticker...">
+            <div class="ba-ticker-dropdown"></div>
+        </div>
+        <?php
+            $selected_tickers_str = get_post_meta( $post->ID, '_news_stock_tickers', true );
+            $selected_tickers = !empty($selected_tickers_str) ? explode(',', $selected_tickers_str) : [];
+        ?>
+        <select id="ba_news_sitemap_stock_tickers_hidden" name="_news_stock_tickers[]" multiple style="display: none;">
+            <?php foreach($selected_tickers as $ticker): ?>
+                <option value="<?php echo esc_attr($ticker); ?>" selected="selected"><?php echo esc_attr($ticker); ?></option>
+            <?php endforeach; ?>
+        </select>
+
+        <style>
+            .ba-ticker-select-wrap { position: relative; }
+            .ba-ticker-selected-list { display: flex; flex-wrap: wrap; gap: 5px; padding: 5px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 5px; min-height: 28px; }
+            .ba-ticker-tag { display: flex; align-items: center; background-color: #e0e0e0; border-radius: 4px; padding: 3px 8px; font-size: 12px; line-height: 1.5; }
+            .ba-ticker-tag span { margin-right: 5px; }
+            .ba-ticker-tag .remove-btn { cursor: pointer; color: #999; font-weight: bold; margin-left: 4px; }
+            .ba-ticker-search { width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; }
+            .ba-ticker-dropdown { display: none; position: absolute; background-color: white; border: 1px solid #ddd; border-top: none; width: 100%; z-index: 100; max-height: 200px; overflow-y: auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+            .ba-ticker-dropdown-item { padding: 8px 12px; cursor: pointer; }
+            .ba-ticker-dropdown-item:hover { background-color: #f0f0f0; }
+            .ba-ticker-dropdown-group { padding: 8px 12px; font-weight: bold; background-color: #f9f9f9; border-top: 1px solid #eee; border-bottom: 1px solid #eee; }
+        </style>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const allTickers = <?php echo json_encode(self::$travel_stock_tickers); ?>;
+            const wrap = document.querySelector('.ba-ticker-select-wrap');
+            if (!wrap) return;
+
+            const selectedContainer = wrap.querySelector('.ba-ticker-selected-list');
+            const searchInput = wrap.querySelector('.ba-ticker-search');
+            const dropdown = wrap.querySelector('.ba-ticker-dropdown');
+            const hiddenSelect = document.getElementById('ba_news_sitemap_stock_tickers_hidden');
+
+            let selectedTickers = new Set(Array.from(hiddenSelect.options).map(opt => opt.value));
+
+            function renderSelected() {
+                selectedContainer.innerHTML = '';
+                selectedTickers.forEach(ticker => {
+                    const tag = document.createElement('div');
+                    tag.className = 'ba-ticker-tag';
+                    tag.innerHTML = `<span>${ticker}</span><span class="remove-btn" data-ticker="${ticker}">&times;</span>`;
+                    selectedContainer.appendChild(tag);
+                });
+            }
+
+            function updateHiddenSelect() {
+                hiddenSelect.innerHTML = '';
+                selectedTickers.forEach(ticker => {
+                    const option = new Option(ticker, ticker, true, true);
+                    hiddenSelect.appendChild(option);
+                });
+            }
+
+            function filterTickers(query) {
+                dropdown.innerHTML = '';
+                if (!query) {
+                    dropdown.style.display = 'none';
+                    return;
+                }
+
+                let found = false;
+                const queryLower = query.toLowerCase();
+
+                for (const group in allTickers) {
+                    const filtered = Object.entries(allTickers[group]).filter(([value, label]) => {
+                        return label.toLowerCase().includes(queryLower) || value.toLowerCase().includes(queryLower);
+                    });
+
+                    if (filtered.length > 0) {
+                        found = true;
+                        const groupEl = document.createElement('div');
+                        groupEl.className = 'ba-ticker-dropdown-group';
+                        groupEl.textContent = group;
+                        dropdown.appendChild(groupEl);
+
+                        filtered.forEach(([value, label]) => {
+                            if (!selectedTickers.has(value)) {
+                                const item = document.createElement('div');
+                                item.className = 'ba-ticker-dropdown-item';
+                                item.textContent = label;
+                                item.dataset.value = value;
+                                dropdown.appendChild(item);
+                            }
+                        });
+                    }
+                }
+                dropdown.style.display = found ? 'block' : 'none';
+            }
+
+            searchInput.addEventListener('input', e => filterTickers(e.target.value));
+            searchInput.addEventListener('focus', e => filterTickers(e.target.value));
+
+            dropdown.addEventListener('click', e => {
+                if (e.target.classList.contains('ba-ticker-dropdown-item')) {
+                    const ticker = e.target.dataset.value;
+                    if (selectedTickers.size < 5) {
+                        selectedTickers.add(ticker);
+                        renderSelected();
+                        updateHiddenSelect();
+                    } else {
+                        alert('You can select a maximum of 5 tickers.');
+                    }
+                    searchInput.value = '';
+                    filterTickers('');
+                    searchInput.focus();
+                }
+            });
+
+            selectedContainer.addEventListener('click', e => {
+                if (e.target.classList.contains('remove-btn')) {
+                    const ticker = e.target.dataset.ticker;
+                    selectedTickers.delete(ticker);
+                    renderSelected();
+                    updateHiddenSelect();
+                }
+            });
+
+            document.addEventListener('click', e => {
+                if (!wrap.contains(e.target)) {
+                    dropdown.style.display = 'none';
+                }
+            });
+
+            renderSelected();
+        });
+        </script>
         <hr style="margin: 1em 0;">
         <?php
         $is_excluded = get_post_meta( $post->ID, '_exclude_from_news_sitemap', true );
@@ -786,13 +864,16 @@ class BA_News_Sitemap {
         }
 
         // Save Stock Tickers
-        if ( isset( $_POST['_news_stock_tickers'] ) ) {
-            $tickers = sanitize_text_field( $_POST['_news_stock_tickers'] );
+        if ( isset( $_POST['_news_stock_tickers'] ) && is_array( $_POST['_news_stock_tickers'] ) ) {
+            $tickers = array_map( 'sanitize_text_field', $_POST['_news_stock_tickers'] );
+            $tickers = array_slice( $tickers, 0, 5 ); // Enforce limit on save
             if ( ! empty( $tickers ) ) {
-                update_post_meta( $post_id, '_news_stock_tickers', $tickers );
+                update_post_meta( $post_id, '_news_stock_tickers', implode( ',', $tickers ) );
             } else {
                 delete_post_meta( $post_id, '_news_stock_tickers' );
             }
+        } else {
+            delete_post_meta( $post_id, '_news_stock_tickers' );
         }
 
         // Save Exclude from News setting
@@ -1019,9 +1100,10 @@ class BA_News_Sitemap {
                 }
             }
 
-            $stock_tickers = self::get_post_stock_tickers( $post_id );
-            if ( ! empty( $stock_tickers ) ) {
-                $tickersNode = $dom->createElement( 'news:stock_tickers', implode( ',', $stock_tickers ) );
+            $tickers = self::get_post_stock_tickers( $post_id );
+             if ( ! empty( $tickers ) ) {
+                $tickersNode = $dom->createElement( 'news:stock_tickers' );
+                $tickersNode->appendChild( $dom->createCDATASection( implode( ', ', $tickers ) ) );
                 $news->appendChild( $tickersNode );
             }
 
@@ -1121,9 +1203,9 @@ class BA_News_Sitemap {
                 }
             }
 
-            $stock_tickers = self::get_post_stock_tickers( $post_id );
-            if ( ! empty( $stock_tickers ) ) {
-                $out .= '<news:stock_tickers>' . esc_html( implode( ',', $stock_tickers ) ) . '</news:stock_tickers>';
+            $tickers = self::get_post_stock_tickers( $post_id );
+            if ( ! empty( $tickers ) ) {
+                $out .= '<news:stock_tickers>' . self::cdata( implode( ', ', $tickers ) ) . '</news:stock_tickers>';
             }
 
             $out .= '</news:news>';
@@ -1291,14 +1373,11 @@ class BA_News_Sitemap {
 
     protected static function get_post_stock_tickers( $post_id ) {
         $tickers_str = get_post_meta( $post_id, '_news_stock_tickers', true );
-        if ( empty( $tickers_str ) ) {
-            return [];
+        if ( ! empty( $tickers_str ) ) {
+            $tickers = explode( ',', $tickers_str );
+            return array_map( 'trim', $tickers );
         }
-        $tickers = explode( ',', $tickers_str );
-        $tickers = array_map( 'trim', $tickers );
-        $tickers = array_filter( $tickers ); // remove empty elements
-        $tickers = array_slice( $tickers, 0, 5 ); // Google News allows up to 5 tickers
-        return apply_filters( 'ba_news_sitemap_stock_tickers', $tickers, $post_id );
+        return [];
     }
 
     protected static function get_xhtml_links_data( $post_id ) {
