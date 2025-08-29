@@ -46,7 +46,7 @@
                 }
                 th, td {
                     text-align: left;
-                    padding: 0.5em 1em; /* CHANGED: Reduced vertical padding */
+                    padding: 0.25em 0.8em;
                     border-bottom: 1px solid #eee;
                 }
                 thead th {
