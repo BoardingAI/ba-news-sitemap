@@ -406,6 +406,54 @@ class BA_News_Sitemap {
                 </div>
             <?php endif; ?>
 
+            <div style="margin: 2em 0; padding: 1em 1.5em; background: #fff; border-left: 4px solid <?php echo (int)$opt['enabled'] === 1 ? '#72aee6' : '#d63638'; ?>; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                <h2 style="margin-top: 0;">Sitemap Status</h2>
+                <?php if ( (int) $opt['enabled'] === 1 ): ?>
+                    <?php
+                    $status_text = '<span style="color: #2271b1; font-weight: 600;">Active</span>';
+                    $article_count = $meta['count'] ?? 0;
+                    $last_updated_text = 'Never';
+                    if ( ! empty( $meta['generated_at'] ) ) {
+                        $last_build_time = strtotime( $meta['generated_at'] );
+                        if ( $last_build_time ) {
+                            $last_updated_text = sprintf( '%s ago', human_time_diff( $last_build_time, current_time( 'timestamp', true ) ) );
+                        }
+                    }
+                    ?>
+                    <p style="font-size: 16px; margin: 1em 0;">Your news sitemap is <?php echo $status_text; ?> and running smoothly.</p>
+                    <ul style="list-style: none; margin: 0; font-size: 14px; line-height: 1.8;">
+                        <li><strong>Status:</strong> On &amp; Working</li>
+                        <li><strong>Contents:</strong> Currently includes <strong><?php echo esc_html( $article_count ); ?></strong> recent articles</li>
+                        <li><strong>Last Updated:</strong> <?php echo esc_html( $last_updated_text ); ?></li>
+                        <?php
+                        $last_ping = get_option('ba_news_sitemap_lastping', []);
+                        if ( ! empty( $last_ping['pinged_at'] ) ) {
+                            $last_ping_time = strtotime( $last_ping['pinged_at'] );
+                            $last_ping_text = sprintf( '%s ago', human_time_diff( $last_ping_time, current_time( 'timestamp', true ) ) );
+
+                            $google_status = $last_ping['results']['google'] ?? 'N/A';
+                            $bing_status = $last_ping['results']['bing'] ?? 'N/A';
+                            $ping_details = "Google: " . esc_html($google_status) . ", Bing: " . esc_html($bing_status);
+
+                            echo '<li><strong>Last Ping:</strong> ' . esc_html( $last_ping_text ) . ' <small>(' . $ping_details . ')</small></li>';
+                        }
+                        ?>
+                        <li><strong>News Sitemap Link:</strong> <a href="<?php echo esc_url($news_sitemap_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($news_sitemap_url); ?></a></li>
+                        <li><strong>Base Sitemap Index:</strong> <a href="<?php echo esc_url($base_sitemap_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($base_sitemap_url); ?></a></li>
+                    </ul>
+                <?php else: ?>
+                    <?php $status_text = '<span style="color: #d63638; font-weight: 600;">Inactive</span>'; ?>
+                    <p style="font-size: 16px; margin: 1em 0;">Your news sitemap is currently <?php echo $status_text; ?>.</p>
+                     <ul style="list-style: none; margin: 0; font-size: 14px; line-height: 1.8;">
+                        <li><strong>Status:</strong> Off &amp; Disabled</li>
+                        <li><strong>Contents:</strong> 0 articles</li>
+                        <li><strong>Last Updated:</strong> N/A</li>
+                        <li><strong>News Sitemap Link:</strong> <code><?php echo esc_html($news_sitemap_url); ?></code> (disabled)</li>
+                        <li><strong>Base Sitemap Index:</strong> <a href="<?php echo esc_url($base_sitemap_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($base_sitemap_url); ?></a></li>
+                    </ul>
+                <?php endif; ?>
+            </div>
+
             <h2 class="nav-tab-wrapper">
                 <a href="?page=ba-news-sitemap&tab=general" class="nav-tab <?php echo $active_tab == 'general' ? 'nav-tab-active' : ''; ?>">General Settings</a>
                 <a href="?page=ba-news-sitemap&tab=exclusions" class="nav-tab <?php echo $active_tab == 'exclusions' ? 'nav-tab-active' : ''; ?>">Exclusion Rules</a>
@@ -566,53 +614,64 @@ class BA_News_Sitemap {
             <details style="margin-top: 2em; border: 1px solid #c3c4c7; padding: 1em; background: #fff;">
                 <summary style="font-size: 1.1em; font-weight: 600; cursor: pointer;">Troubleshooting &amp; Tools</summary>
                 <div style="margin-top: 1em;">
-                    <p>Use these tools if you suspect your sitemap is out of date or needs a nudge.</p>
-                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display: inline-block; margin-right: 10px;">
-                        <?php wp_nonce_field( 'ba_news_sitemap_action' ); ?>
-                        <input type="hidden" name="action" value="ba_news_sitemap_action">
-                        <input type="hidden" name="op" value="rebuild">
-                        <?php submit_button( 'Force Refresh Sitemap', 'secondary', 'submit', false ); ?>
-                    </form>
-                     <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display: inline-block;">
-                        <?php wp_nonce_field( 'ba_news_sitemap_action' ); ?>
-                        <input type="hidden" name="action" value="ba_news_sitemap_action">
-                        <input type="hidden" name="op" value="ping">
-                        <?php submit_button( 'Manually Ping Google', 'secondary', 'submit', false ); ?>
-                    </form>
+                    <div style="padding-top: 1em;">
+                        <h3 style="margin-top: 0;">Manual Actions</h3>
+                        <p>Use these buttons for immediate actions, like refreshing the sitemap or pinging search engines.</p>
+                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display: inline-block; margin-right: 10px;">
+                            <?php wp_nonce_field( 'ba_news_sitemap_action' ); ?>
+                            <input type="hidden" name="action" value="ba_news_sitemap_action">
+                            <input type="hidden" name="op" value="rebuild">
+                            <?php submit_button( 'Force Refresh Sitemap', 'secondary', 'submit', false ); ?>
+                        </form>
+                         <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display: inline-block;">
+                            <?php wp_nonce_field( 'ba_news_sitemap_action' ); ?>
+                            <input type="hidden" name="action" value="ba_news_sitemap_action">
+                            <input type="hidden" name="op" value="ping">
+                            <?php submit_button( 'Manually Ping Google', 'secondary', 'submit', false ); ?>
+                        </form>
+                    </div>
 
                     <div style="margin-top: 2em; padding-top: 1em; border-top: 1px solid #ddd;">
                         <h3 style="margin-top: 0;">System Status</h3>
-                        <?php if ( (int) $opt['enabled'] === 1 ): ?>
-                            <?php
-                            $article_count = $meta['count'] ?? 0;
-                            $last_updated_text = 'never';
-                            if ( ! empty( $meta['generated_at'] ) ) {
-                                $last_build_time = strtotime( $meta['generated_at'] );
-                                if ( $last_build_time ) {
-                                    $last_updated_text = sprintf( '%s ago', human_time_diff( $last_build_time, current_time( 'timestamp', true ) ) );
+                        <?php
+                            $status_items = [];
+
+                            // Cron status
+                            $cron_disabled = ( defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON );
+                            if ( $cron_disabled ) {
+                                $status_items[] = '<strong>WP-Cron:</strong> <span style="color:#d63638;">Disabled</span>';
+                            } else {
+                                $next_run = wp_next_scheduled( self::CRON_HOOK );
+                                if ( $next_run ) {
+                                    $status_items[] = '<strong>Next Rebuild:</strong> ' . human_time_diff( $next_run, current_time( 'timestamp', true ) ) . ' from now';
+                                } else {
+                                    $status_items[] = '<strong>Next Rebuild:</strong> Not scheduled';
                                 }
                             }
 
-                            $status_parts = [];
-                            $status_parts[] = '<strong>Status:</strong> <span style="color: #2271b1; font-weight: 600;">Active</span>';
-                            $status_parts[] = '<strong>Includes:</strong> ' . esc_html( $article_count ) . ' articles';
-                            $status_parts[] = '<strong>Updated:</strong> ' . esc_html( $last_updated_text );
+                            // Last build status
+                            if ( ! empty( $meta['generated_at'] ) && ! empty( $meta['count'] ) ) {
+                                $status_items[] = '<strong>Last Build:</strong> ' . esc_html( $meta['count'] ) . ' URLs in ' . esc_html( $meta['took_ms'] ?? 'N/A' ) . 'ms';
+                            }
 
+                            // Last ping status
                             $last_ping = get_option('ba_news_sitemap_lastping', []);
                             if ( ! empty( $last_ping['pinged_at'] ) ) {
-                                $last_ping_time = strtotime( $last_ping['pinged_at'] );
-                                $last_ping_text = sprintf( '%s ago', human_time_diff( $last_ping_time, current_time( 'timestamp', true ) ) );
-                                $status_parts[] = '<strong>Last Ping:</strong> ' . esc_html( $last_ping_text );
+                                $ping_time = strtotime( $last_ping['pinged_at'] );
+                                $ping_text = '<strong>Last Ping:</strong> ' . human_time_diff( $ping_time, current_time('timestamp', true) ) . ' ago';
+                                $ping_results = [];
+                                if (isset($last_ping['results']['google'])) $ping_results[] = 'Google: ' . esc_html($last_ping['results']['google']);
+                                if (isset($last_ping['results']['bing'])) $ping_results[] = 'Bing: ' . esc_html($last_ping['results']['bing']);
+                                if ($ping_results) $ping_text .= ' (' . implode(', ', $ping_results) . ')';
+                                $status_items[] = $ping_text;
                             }
-                             echo '<p style="font-size: 13px; color: #50575e; margin-bottom: 1em;">' . implode(' &nbsp;|&nbsp; ', $status_parts) . '</p>';
-                            ?>
-                            <p>
-                                <strong>News Sitemap:</strong> <a href="<?php echo esc_url($news_sitemap_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($news_sitemap_url); ?></a><br>
-                                <strong>Base Sitemap:</strong> <a href="<?php echo esc_url($base_sitemap_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($base_sitemap_url); ?></a>
-                            </p>
-                        <?php else: ?>
-                            <p style="font-size: 13px; color: #50575e;"><strong>Status:</strong> <span style="color: #d63638; font-weight: 600;">Inactive</span>. Enable the sitemap from the General Settings tab to get started.</p>
-                        <?php endif; ?>
+
+                            if ( empty($status_items) ) {
+                                echo '<p>No status to report yet. The sitemap should build shortly.</p>';
+                            } else {
+                                echo '<p style="font-size: 13px; color: #50575e;">' . implode(' &nbsp;|&nbsp; ', $status_items) . '</p>';
+                            }
+                        ?>
                     </div>
                 </div>
             </details>
