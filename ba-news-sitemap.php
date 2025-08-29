@@ -389,7 +389,13 @@ class BA_News_Sitemap {
         $meta = get_option( self::LASTBUILD_KEY, [] );
         $news_sitemap_url = home_url( '/news-sitemap.xml' );
         $base_sitemap_url = home_url( '/sitemap_index.xml' );
+        $active_tab = isset($_GET['tab']) ? sanitize_key($_GET['tab']) : 'general';
         ?>
+        <style>
+            .nav-tab-wrapper { margin-bottom: 20px; }
+            .tab-content { display: none; }
+            .tab-content.active { display: block; }
+        </style>
         <div class="wrap">
             <h1>BoardingArea News Sitemap</h1>
             <p style="font-size: 1.1em; color: #50575e;">This plugin automatically creates and updates a special sitemap to help Google find your latest articles faster.</p>
@@ -400,212 +406,223 @@ class BA_News_Sitemap {
                 </div>
             <?php endif; ?>
 
-            <div style="margin: 2em 0; padding: 1em 1.5em; background: #fff; border-left: 4px solid <?php echo (int)$opt['enabled'] === 1 ? '#72aee6' : '#d63638'; ?>; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
-                <h2 style="margin-top: 0;">Sitemap Status</h2>
-                <?php if ( (int) $opt['enabled'] === 1 ): ?>
-                    <?php
-                    $status_text = '<span style="color: #2271b1; font-weight: 600;">Active</span>';
-                    $article_count = $meta['count'] ?? 0;
-                    $last_updated_text = 'Never';
-                    if ( ! empty( $meta['generated_at'] ) ) {
-                        $last_build_time = strtotime( $meta['generated_at'] );
-                        if ( $last_build_time ) {
-                            $last_updated_text = sprintf( '%s ago', human_time_diff( $last_build_time, current_time( 'timestamp', true ) ) );
-                        }
-                    }
-                    ?>
-                    <p style="font-size: 16px; margin: 1em 0;">Your news sitemap is <?php echo $status_text; ?> and running smoothly.</p>
-                    <ul style="list-style: none; margin: 0; font-size: 14px; line-height: 1.8;">
-                        <li><strong>Status:</strong> On &amp; Working</li>
-                        <li><strong>Contents:</strong> Currently includes <strong><?php echo esc_html( $article_count ); ?></strong> recent articles</li>
-                        <li><strong>Last Updated:</strong> <?php echo esc_html( $last_updated_text ); ?></li>
-                        <?php
-                        $last_ping = get_option('ba_news_sitemap_lastping', []);
-                        if ( ! empty( $last_ping['pinged_at'] ) ) {
-                            $last_ping_time = strtotime( $last_ping['pinged_at'] );
-                            $last_ping_text = sprintf( '%s ago', human_time_diff( $last_ping_time, current_time( 'timestamp', true ) ) );
-
-                            $google_status = $last_ping['results']['google'] ?? 'N/A';
-                            $bing_status = $last_ping['results']['bing'] ?? 'N/A';
-                            $ping_details = "Google: " . esc_html($google_status) . ", Bing: " . esc_html($bing_status);
-
-                            echo '<li><strong>Last Ping:</strong> ' . esc_html( $last_ping_text ) . ' <small>(' . $ping_details . ')</small></li>';
-                        }
-                        ?>
-                        <li><strong>News Sitemap Link:</strong> <a href="<?php echo esc_url($news_sitemap_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($news_sitemap_url); ?></a></li>
-                        <li><strong>Base Sitemap Index:</strong> <a href="<?php echo esc_url($base_sitemap_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($base_sitemap_url); ?></a></li>
-                    </ul>
-                <?php else: ?>
-                    <?php $status_text = '<span style="color: #d63638; font-weight: 600;">Inactive</span>'; ?>
-                    <p style="font-size: 16px; margin: 1em 0;">Your news sitemap is currently <?php echo $status_text; ?>.</p>
-                     <ul style="list-style: none; margin: 0; font-size: 14px; line-height: 1.8;">
-                        <li><strong>Status:</strong> Off &amp; Disabled</li>
-                        <li><strong>Contents:</strong> 0 articles</li>
-                        <li><strong>Last Updated:</strong> N/A</li>
-                        <li><strong>News Sitemap Link:</strong> <code><?php echo esc_html($news_sitemap_url); ?></code> (disabled)</li>
-                        <li><strong>Base Sitemap Index:</strong> <a href="<?php echo esc_url($base_sitemap_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($base_sitemap_url); ?></a></li>
-                    </ul>
-                <?php endif; ?>
-            </div>
+            <h2 class="nav-tab-wrapper">
+                <a href="?page=ba-news-sitemap&tab=general" class="nav-tab <?php echo $active_tab == 'general' ? 'nav-tab-active' : ''; ?>">General Settings</a>
+                <a href="?page=ba-news-sitemap&tab=exclusions" class="nav-tab <?php echo $active_tab == 'exclusions' ? 'nav-tab-active' : ''; ?>">Exclusion Rules</a>
+                <a href="?page=ba-news-sitemap&tab=advanced" class="nav-tab <?php echo $active_tab == 'advanced' ? 'nav-tab-active' : ''; ?>">Advanced</a>
+            </h2>
 
             <form method="post" action="options.php">
                 <?php settings_fields( 'ba_news_sitemap' ); ?>
 
-                <h2>Settings</h2>
-                <table class="form-table" role="presentation">
-                    <tr valign="top">
-                        <th scope="row">Enable Sitemap</th>
-                        <td>
-                            <label for="ba_news_sitemap_enabled">
-                                <input type="checkbox" id="ba_news_sitemap_enabled" name="<?php echo esc_attr(self::OPT_KEY); ?>[enabled]" value="1" <?php checked( 1, (int) $opt['enabled'] ); ?>>
-                                Automatically create and update the News Sitemap.
-                            </label>
-                        </td>
-                    </tr>
-                    <tr valign="top">
-                        <th scope="row">
-                            <label for="ba_news_sitemap_publication_name">Publication Name</label>
-                        </th>
-                        <td>
-                            <input type="text" id="ba_news_sitemap_publication_name" class="regular-text" name="<?php echo esc_attr(self::OPT_KEY); ?>[publication_name]" value="<?php echo esc_attr( $opt['publication_name'] ); ?>" placeholder="<?php echo esc_attr( get_bloginfo('name') ); ?>">
-                            <p class="description">The name of your blog as it should appear in Google News. Defaults to your site title.</p>
-                        </td>
-                    </tr>
-                    <tr valign="top">
-                        <th scope="row">Include Content Types</th>
-                        <td>
-                            <fieldset>
-                                <legend class="screen-reader-text"><span>Include Content Types</span></legend>
-                                <?php
-                                $post_types = get_post_types( [ 'public' => true ], 'objects' );
-                                unset($post_types['attachment']); // Attachments should not be in sitemaps
-                                $saved_post_types = (array) $opt['post_types'];
-
-                                foreach ( $post_types as $slug => $pt ) {
-                                    ?>
-                                    <label for="pt_<?php echo esc_attr($slug); ?>" style="display: block; margin-bottom: 5px;">
-                                        <input type="checkbox" id="pt_<?php echo esc_attr($slug); ?>" name="<?php echo esc_attr(self::OPT_KEY); ?>[post_types][]" value="<?php echo esc_attr($slug); ?>" <?php checked( in_array( $slug, $saved_post_types, true ) ); ?>>
-                                        <?php echo esc_html( $pt->label ); ?>
-                                    </label>
+                <div id="tab-general" class="tab-content <?php echo $active_tab == 'general' ? 'active' : ''; ?>">
+                    <table class="form-table" role="presentation">
+                        <tr valign="top">
+                            <th scope="row">Enable Sitemap</th>
+                            <td>
+                                <label for="ba_news_sitemap_enabled">
+                                    <input type="checkbox" id="ba_news_sitemap_enabled" name="<?php echo esc_attr(self::OPT_KEY); ?>[enabled]" value="1" <?php checked( 1, (int) $opt['enabled'] ); ?>>
+                                    Automatically create and update the News Sitemap.
+                                </label>
+                            </td>
+                        </tr>
+                        <tr valign="top">
+                            <th scope="row">
+                                <label for="ba_news_sitemap_publication_name">Publication Name</label>
+                            </th>
+                            <td>
+                                <input type="text" id="ba_news_sitemap_publication_name" class="regular-text" name="<?php echo esc_attr(self::OPT_KEY); ?>[publication_name]" value="<?php echo esc_attr( $opt['publication_name'] ); ?>" placeholder="<?php echo esc_attr( get_bloginfo('name') ); ?>">
+                                <p class="description">The name of your blog as it should appear in Google News. Defaults to your site title.</p>
+                            </td>
+                        </tr>
+                        <tr valign="top">
+                            <th scope="row">Include Content Types</th>
+                            <td>
+                                <fieldset>
+                                    <legend class="screen-reader-text"><span>Include Content Types</span></legend>
                                     <?php
-                                }
-                                ?>
-                            </fieldset>
-                             <p class="description">Select which types of content to include. It's usually best to only include your main article types, like "Posts".</p>
-                        </td>
-                    </tr>
-                    <tr valign="top">
-                        <th scope="row">Default News Genres</th>
-                        <td>
-                            <fieldset>
-                                <legend class="screen-reader-text"><span>Default News Genres</span></legend>
-                                <?php
-                                $saved_genres = (array) ($opt['default_genres'] ?? []);
-                                foreach ( self::$allowed_genres as $token => $label ) {
-                                    ?>
-                                    <label for="genre_<?php echo esc_attr($token); ?>" style="display: block; margin-bottom: 5px;">
-                                        <input type="checkbox" id="genre_<?php echo esc_attr($token); ?>" name="<?php echo esc_attr(self::OPT_KEY); ?>[default_genres][]" value="<?php echo esc_attr($token); ?>" <?php checked( in_array( $token, $saved_genres, true ) ); ?>>
-                                        <?php echo esc_html( $label ); ?>
-                                    </label>
-                                    <?php
-                                }
-                                ?>
-                            </fieldset>
-                             <p class="description">Select the default genres that apply to most of your articles. You can override this for individual posts.</p>
-                        </td>
-                    </tr>
-                    <tr valign="top">
-                        <th scope="row">Disable News Keywords</th>
-                        <td>
-                            <label for="ba_news_sitemap_disable_keywords">
-                                <input type="checkbox" id="ba_news_sitemap_disable_keywords" name="<?php echo esc_attr(self::OPT_KEY); ?>[disable_keywords]" value="1" <?php checked( 1, (int) ($opt['disable_keywords'] ?? 0) ); ?>>
-                                Don't output the <code>&lt;news:keywords&gt;</code> tag.
-                            </label>
-                            <p class="description">This is recommended. Google News largely ignores this tag, and it can sometimes contain low-value terms like "Uncategorized".</p>
-                        </td>
-                    </tr>
-                    <tr valign="top">
-                        <th scope="row">
-                            <label for="ba_news_sitemap_image_license_url">Default Image License URL</label>
-                        </th>
-                        <td>
-                            <input type="url" id="ba_news_sitemap_image_license_url" class="regular-text" name="<?php echo esc_attr(self::OPT_KEY); ?>[image_license_url]" value="<?php echo esc_attr( $opt['image_license_url'] ); ?>" placeholder="https://example.com/image-licenses/">
-                            <p class="description">Optional. Provide a URL to a page that describes the licenses covering the images in your articles. This can help get a "Licensable" badge in Google Images.</p>
-                        </td>
-                    </tr>
-                    <tr valign="top">
-                        <th scope="row">Ping Search Engines</th>
-                        <td>
-                            <label for="ba_news_sitemap_enable_pings">
-                                <input type="checkbox" id="ba_news_sitemap_enable_pings" name="<?php echo esc_attr(self::OPT_KEY); ?>[enable_pings]" value="1" <?php checked( 1, (int) ($opt['enable_pings'] ?? 1) ); ?>>
-                                Automatically ping Google and Bing when the sitemap is updated.
-                            </label>
-                            <p class="description">This helps search engines discover your new content faster. Pings are sent at most once every 5 minutes.</p>
-                        </td>
-                    </tr>
-                    <tr valign="top">
-                        <th scope="row">Exclude by Taxonomy</th>
-                        <td>
-                            <p class="description" style="margin-bottom: 1em;">Exclude posts from the sitemap if they have any of the selected terms.</p>
+                                    $post_types = get_post_types( [ 'public' => true ], 'objects' );
+                                    unset($post_types['attachment']);
+                                    $saved_post_types = (array) $opt['post_types'];
 
-                            <strong>Categories</strong>
-                            <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-top: 5px; margin-bottom: 1em;">
-                                <?php
-                                $categories = get_terms(['taxonomy' => 'category', 'hide_empty' => false]);
-                                $excluded_cats = $opt['excluded_taxonomies']['category'] ?? [];
-                                if ( ! empty( $categories ) && ! is_wp_error( $categories ) ) {
-                                    foreach ($categories as $term) {
+                                    foreach ( $post_types as $slug => $pt ) {
                                         ?>
-                                        <label for="tax_cat_<?php echo esc_attr($term->term_id); ?>" style="display: block; margin-bottom: 5px;">
-                                            <input type="checkbox" id="tax_cat_<?php echo esc_attr($term->term_id); ?>" name="<?php echo esc_attr(self::OPT_KEY); ?>[excluded_taxonomies][category][]" value="<?php echo esc_attr($term->term_id); ?>" <?php checked( in_array( $term->term_id, $excluded_cats ) ); ?>>
-                                            <?php echo esc_html( $term->name ); ?>
+                                        <label for="pt_<?php echo esc_attr($slug); ?>" style="display: block; margin-bottom: 5px;">
+                                            <input type="checkbox" id="pt_<?php echo esc_attr($slug); ?>" name="<?php echo esc_attr(self::OPT_KEY); ?>[post_types][]" value="<?php echo esc_attr($slug); ?>" <?php checked( in_array( $slug, $saved_post_types, true ) ); ?>>
+                                            <?php echo esc_html( $pt->label ); ?>
                                         </label>
                                         <?php
                                     }
-                                } else {
-                                    echo 'No categories found.';
-                                }
-                                ?>
-                            </div>
-
-                            <strong>Tags</strong>
-                            <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-top: 5px;">
-                                 <?php
-                                $tags = get_terms(['taxonomy' => 'post_tag', 'hide_empty' => false]);
-                                $excluded_tags = $opt['excluded_taxonomies']['post_tag'] ?? [];
-                                if ( ! empty( $tags ) && ! is_wp_error( $tags ) ) {
-                                    foreach ($tags as $term) {
+                                    ?>
+                                </fieldset>
+                                 <p class="description">Select which types of content to include. It's usually best to only include your main article types, like "Posts".</p>
+                            </td>
+                        </tr>
+                        <tr valign="top">
+                            <th scope="row">Default News Genres</th>
+                            <td>
+                                <fieldset>
+                                    <legend class="screen-reader-text"><span>Default News Genres</span></legend>
+                                    <?php
+                                    $saved_genres = (array) ($opt['default_genres'] ?? []);
+                                    foreach ( self::$allowed_genres as $token => $label ) {
                                         ?>
-                                        <label for="tax_tag_<?php echo esc_attr($term->term_id); ?>" style="display: block; margin-bottom: 5px;">
-                                            <input type="checkbox" id="tax_tag_<?php echo esc_attr($term->term_id); ?>" name="<?php echo esc_attr(self::OPT_KEY); ?>[excluded_taxonomies][post_tag][]" value="<?php echo esc_attr($term->term_id); ?>" <?php checked( in_array( $term->term_id, $excluded_tags ) ); ?>>
-                                            <?php echo esc_html( $term->name ); ?>
+                                        <label for="genre_<?php echo esc_attr($token); ?>" style="display: block; margin-bottom: 5px;">
+                                            <input type="checkbox" id="genre_<?php echo esc_attr($token); ?>" name="<?php echo esc_attr(self::OPT_KEY); ?>[default_genres][]" value="<?php echo esc_attr($token); ?>" <?php checked( in_array( $token, $saved_genres, true ) ); ?>>
+                                            <?php echo esc_html( $label ); ?>
                                         </label>
                                         <?php
                                     }
-                                } else {
-                                    echo 'No tags found.';
-                                }
-                                ?>
-                            </div>
-                        </td>
-                    </tr>
-                </table>
+                                    ?>
+                                </fieldset>
+                                 <p class="description">Select the default genres that apply to most of your articles. You can override this for individual posts.</p>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+
+                <div id="tab-exclusions" class="tab-content <?php echo $active_tab == 'exclusions' ? 'active' : ''; ?>">
+                    <table class="form-table" role="presentation">
+                         <tr valign="top">
+                            <th scope="row">Exclude by Taxonomy</th>
+                            <td>
+                                <p class="description" style="margin-bottom: 1em;">Exclude posts from the sitemap if they have any of the selected terms.</p>
+                                <strong>Categories</strong>
+                                <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-top: 5px; margin-bottom: 1em;">
+                                    <?php
+                                    $categories = get_terms(['taxonomy' => 'category', 'hide_empty' => false]);
+                                    $excluded_cats = $opt['excluded_taxonomies']['category'] ?? [];
+                                    if ( ! empty( $categories ) && ! is_wp_error( $categories ) ) {
+                                        foreach ($categories as $term) {
+                                            ?>
+                                            <label for="tax_cat_<?php echo esc_attr($term->term_id); ?>" style="display: block; margin-bottom: 5px;">
+                                                <input type="checkbox" id="tax_cat_<?php echo esc_attr($term->term_id); ?>" name="<?php echo esc_attr(self::OPT_KEY); ?>[excluded_taxonomies][category][]" value="<?php echo esc_attr($term->term_id); ?>" <?php checked( in_array( $term->term_id, $excluded_cats ) ); ?>>
+                                                <?php echo esc_html( $term->name ); ?>
+                                            </label>
+                                            <?php
+                                        }
+                                    } else { echo 'No categories found.'; }
+                                    ?>
+                                </div>
+                                <strong>Tags</strong>
+                                <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-top: 5px;">
+                                     <?php
+                                    $tags = get_terms(['taxonomy' => 'post_tag', 'hide_empty' => false]);
+                                    $excluded_tags = $opt['excluded_taxonomies']['post_tag'] ?? [];
+                                    if ( ! empty( $tags ) && ! is_wp_error( $tags ) ) {
+                                        foreach ($tags as $term) {
+                                            ?>
+                                            <label for="tax_tag_<?php echo esc_attr($term->term_id); ?>" style="display: block; margin-bottom: 5px;">
+                                                <input type="checkbox" id="tax_tag_<?php echo esc_attr($term->term_id); ?>" name="<?php echo esc_attr(self::OPT_KEY); ?>[excluded_taxonomies][post_tag][]" value="<?php echo esc_attr($term->term_id); ?>" <?php checked( in_array( $term->term_id, $excluded_tags ) ); ?>>
+                                                <?php echo esc_html( $term->name ); ?>
+                                            </label>
+                                            <?php
+                                        }
+                                    } else { echo 'No tags found.'; }
+                                    ?>
+                                </div>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+
+                <div id="tab-advanced" class="tab-content <?php echo $active_tab == 'advanced' ? 'active' : ''; ?>">
+                    <table class="form-table" role="presentation">
+                        <tr valign="top">
+                            <th scope="row">Disable News Keywords</th>
+                            <td>
+                                <label for="ba_news_sitemap_disable_keywords">
+                                    <input type="checkbox" id="ba_news_sitemap_disable_keywords" name="<?php echo esc_attr(self::OPT_KEY); ?>[disable_keywords]" value="1" <?php checked( 1, (int) ($opt['disable_keywords'] ?? 0) ); ?>>
+                                    Don't output the <code>&lt;news:keywords&gt;</code> tag.
+                                </label>
+                                <p class="description">This is recommended. Google News largely ignores this tag, and it can sometimes contain low-value terms like "Uncategorized".</p>
+                            </td>
+                        </tr>
+                        <tr valign="top">
+                            <th scope="row">
+                                <label for="ba_news_sitemap_image_license_url">Default Image License URL</label>
+                            </th>
+                            <td>
+                                <input type="url" id="ba_news_sitemap_image_license_url" class="regular-text" name="<?php echo esc_attr(self::OPT_KEY); ?>[image_license_url]" value="<?php echo esc_attr( $opt['image_license_url'] ); ?>" placeholder="https://example.com/image-licenses/">
+                                <p class="description">Optional. Provide a URL to a page that describes the licenses covering the images in your articles. This can help get a "Licensable" badge in Google Images.</p>
+                            </td>
+                        </tr>
+                        <tr valign="top">
+                            <th scope="row">Ping Search Engines</th>
+                            <td>
+                                <label for="ba_news_sitemap_enable_pings">
+                                    <input type="checkbox" id="ba_news_sitemap_enable_pings" name="<?php echo esc_attr(self::OPT_KEY); ?>[enable_pings]" value="1" <?php checked( 1, (int) ($opt['enable_pings'] ?? 1) ); ?>>
+                                    Automatically ping Google and Bing when the sitemap is updated.
+                                </label>
+                                <p class="description">This helps search engines discover your new content faster. Pings are sent at most once every 5 minutes.</p>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+
                 <?php submit_button(); ?>
             </form>
 
             <details style="margin-top: 2em; border: 1px solid #c3c4c7; padding: 1em; background: #fff;">
                 <summary style="font-size: 1.1em; font-weight: 600; cursor: pointer;">Troubleshooting &amp; Tools</summary>
                 <div style="margin-top: 1em;">
-                    <p>If you think your sitemap is out of date or not showing your latest post, you can manually refresh it.</p>
-                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                    <p>Use these tools if you suspect your sitemap is out of date or needs a nudge.</p>
+                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display: inline-block; margin-right: 10px;">
                         <?php wp_nonce_field( 'ba_news_sitemap_action' ); ?>
                         <input type="hidden" name="action" value="ba_news_sitemap_action">
                         <input type="hidden" name="op" value="rebuild">
-                        <?php submit_button( 'Force Refresh Now', 'secondary', 'submit', false ); ?>
+                        <?php submit_button( 'Force Refresh Sitemap', 'secondary', 'submit', false ); ?>
                     </form>
+                     <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display: inline-block;">
+                        <?php wp_nonce_field( 'ba_news_sitemap_action' ); ?>
+                        <input type="hidden" name="action" value="ba_news_sitemap_action">
+                        <input type="hidden" name="op" value="ping">
+                        <?php submit_button( 'Manually Ping Google', 'secondary', 'submit', false ); ?>
+                    </form>
+
+                    <div style="margin-top: 2em; padding-top: 1em; border-top: 1px solid #ddd;">
+                        <h3 style="margin-top: 0;">System Status</h3>
+                        <?php if ( (int) $opt['enabled'] === 1 ): ?>
+                            <?php
+                            $article_count = $meta['count'] ?? 0;
+                            $last_updated_text = 'never';
+                            if ( ! empty( $meta['generated_at'] ) ) {
+                                $last_build_time = strtotime( $meta['generated_at'] );
+                                if ( $last_build_time ) {
+                                    $last_updated_text = sprintf( '%s ago', human_time_diff( $last_build_time, current_time( 'timestamp', true ) ) );
+                                }
+                            }
+
+                            $status_parts = [];
+                            $status_parts[] = '<strong>Status:</strong> <span style="color: #2271b1; font-weight: 600;">Active</span>';
+                            $status_parts[] = '<strong>Includes:</strong> ' . esc_html( $article_count ) . ' articles';
+                            $status_parts[] = '<strong>Updated:</strong> ' . esc_html( $last_updated_text );
+
+                            $last_ping = get_option('ba_news_sitemap_lastping', []);
+                            if ( ! empty( $last_ping['pinged_at'] ) ) {
+                                $last_ping_time = strtotime( $last_ping['pinged_at'] );
+                                $last_ping_text = sprintf( '%s ago', human_time_diff( $last_ping_time, current_time( 'timestamp', true ) ) );
+                                $status_parts[] = '<strong>Last Ping:</strong> ' . esc_html( $last_ping_text );
+                            }
+                             echo '<p style="font-size: 13px; color: #50575e; margin-bottom: 1em;">' . implode(' &nbsp;|&nbsp; ', $status_parts) . '</p>';
+                            ?>
+                            <p>
+                                <strong>News Sitemap:</strong> <a href="<?php echo esc_url($news_sitemap_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($news_sitemap_url); ?></a><br>
+                                <strong>Base Sitemap:</strong> <a href="<?php echo esc_url($base_sitemap_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($base_sitemap_url); ?></a>
+                            </p>
+                        <?php else: ?>
+                            <p style="font-size: 13px; color: #50575e;"><strong>Status:</strong> <span style="color: #d63638; font-weight: 600;">Inactive</span>. Enable the sitemap from the General Settings tab to get started.</p>
+                        <?php endif; ?>
+                    </div>
                 </div>
             </details>
         </div>
+        <script>
+        // Simple tab switcher
+        document.addEventListener('DOMContentLoaded', function() {
+            // This script is not needed if we use the URL parameter method for active tabs
+        });
+        </script>
         <?php
     }
 
@@ -624,6 +641,9 @@ class BA_News_Sitemap {
         switch ( $op ) {
             case 'rebuild':
                 self::prewarm_cache();
+                break;
+            case 'ping':
+                self::do_pings(true);
                 break;
         }
         wp_safe_redirect( add_query_arg( [ 'page' => 'ba-news-sitemap', 'msg' => 'done' ], admin_url( 'options-general.php' ) ) );
