@@ -389,25 +389,19 @@ class BA_News_Sitemap {
         $meta = get_option( self::LASTBUILD_KEY, [] );
         $news_sitemap_url = home_url( '/news-sitemap.xml' );
         $base_sitemap_url = home_url( '/sitemap_index.xml' );
-        $active_tab = isset($_GET['tab']) ? sanitize_key($_GET['tab']) : 'general';
         ?>
         <style>
             .nav-tab-wrapper { margin-bottom: 20px; }
             .tab-content { display: none; }
             .tab-content.active { display: block; }
+            .nav-tab-wrapper .nav-tab { cursor: pointer; }
         </style>
         <div class="wrap">
             <h1>BoardingArea News Sitemap</h1>
             <p style="font-size: 1.1em; color: #50575e;">This plugin automatically creates and updates a special sitemap to help Google find your latest articles faster.</p>
 
-            <?php if ( isset($_GET['settings-updated']) ): ?>
-                <div id="setting-error-settings_updated" class="notice notice-success settings-error is-dismissible">
-                    <p><strong>Settings saved.</strong></p>
-                </div>
-            <?php endif; ?>
-
             <div style="margin: 2em 0; padding: 1em 1.5em; background: #fff; border-left: 4px solid <?php echo (int)$opt['enabled'] === 1 ? '#72aee6' : '#d63638'; ?>; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
-                <h2 style="margin-top: 0;">Sitemap Status</h2>
+                <h2 style="margin-top: 0;">News Sitemap Status</h2>
                 <?php if ( (int) $opt['enabled'] === 1 ): ?>
                     <?php
                     $status_text = '<span style="color: #2271b1; font-weight: 600;">Active</span>';
@@ -425,19 +419,6 @@ class BA_News_Sitemap {
                         <li><strong>Status:</strong> On &amp; Working</li>
                         <li><strong>Contents:</strong> Currently includes <strong><?php echo esc_html( $article_count ); ?></strong> recent articles</li>
                         <li><strong>Last Updated:</strong> <?php echo esc_html( $last_updated_text ); ?></li>
-                        <?php
-                        $last_ping = get_option('ba_news_sitemap_lastping', []);
-                        if ( ! empty( $last_ping['pinged_at'] ) ) {
-                            $last_ping_time = strtotime( $last_ping['pinged_at'] );
-                            $last_ping_text = sprintf( '%s ago', human_time_diff( $last_ping_time, current_time( 'timestamp', true ) ) );
-
-                            $google_status = $last_ping['results']['google'] ?? 'N/A';
-                            $bing_status = $last_ping['results']['bing'] ?? 'N/A';
-                            $ping_details = "Google: " . esc_html($google_status) . ", Bing: " . esc_html($bing_status);
-
-                            echo '<li><strong>Last Ping:</strong> ' . esc_html( $last_ping_text ) . ' <small>(' . $ping_details . ')</small></li>';
-                        }
-                        ?>
                         <li><strong>News Sitemap Link:</strong> <a href="<?php echo esc_url($news_sitemap_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($news_sitemap_url); ?></a></li>
                         <li><strong>Base Sitemap Index:</strong> <a href="<?php echo esc_url($base_sitemap_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($base_sitemap_url); ?></a></li>
                     </ul>
@@ -455,15 +436,15 @@ class BA_News_Sitemap {
             </div>
 
             <h2 class="nav-tab-wrapper">
-                <a href="?page=ba-news-sitemap&tab=general" class="nav-tab <?php echo $active_tab == 'general' ? 'nav-tab-active' : ''; ?>">General Settings</a>
-                <a href="?page=ba-news-sitemap&tab=exclusions" class="nav-tab <?php echo $active_tab == 'exclusions' ? 'nav-tab-active' : ''; ?>">Exclusion Rules</a>
-                <a href="?page=ba-news-sitemap&tab=advanced" class="nav-tab <?php echo $active_tab == 'advanced' ? 'nav-tab-active' : ''; ?>">Advanced</a>
+                <a class="nav-tab nav-tab-active" data-tab="general">General Settings</a>
+                <a class="nav-tab" data-tab="exclusions">Exclusion Rules</a>
+                <a class="nav-tab" data-tab="advanced">Advanced</a>
             </h2>
 
             <form method="post" action="options.php">
                 <?php settings_fields( 'ba_news_sitemap' ); ?>
 
-                <div id="tab-general" class="tab-content <?php echo $active_tab == 'general' ? 'active' : ''; ?>">
+                <div id="tab-general" class="tab-content active">
                     <table class="form-table" role="presentation">
                         <tr valign="top">
                             <th scope="row">Enable Sitemap</th>
@@ -529,7 +510,7 @@ class BA_News_Sitemap {
                     </table>
                 </div>
 
-                <div id="tab-exclusions" class="tab-content <?php echo $active_tab == 'exclusions' ? 'active' : ''; ?>">
+                <div id="tab-exclusions" class="tab-content">
                     <table class="form-table" role="presentation">
                          <tr valign="top">
                             <th scope="row">Exclude by Taxonomy</th>
@@ -574,7 +555,7 @@ class BA_News_Sitemap {
                     </table>
                 </div>
 
-                <div id="tab-advanced" class="tab-content <?php echo $active_tab == 'advanced' ? 'active' : ''; ?>">
+                <div id="tab-advanced" class="tab-content">
                     <table class="form-table" role="presentation">
                         <tr valign="top">
                             <th scope="row">Disable News Keywords</th>
@@ -677,9 +658,29 @@ class BA_News_Sitemap {
             </details>
         </div>
         <script>
-        // Simple tab switcher
         document.addEventListener('DOMContentLoaded', function() {
-            // This script is not needed if we use the URL parameter method for active tabs
+            const tabWrapper = document.querySelector('.nav-tab-wrapper');
+            const tabs = tabWrapper.querySelectorAll('.nav-tab');
+            const tabContents = document.querySelectorAll('.tab-content');
+
+            tabWrapper.addEventListener('click', function(e) {
+                if (e.target.classList.contains('nav-tab')) {
+                    e.preventDefault();
+
+                    tabs.forEach(tab => tab.classList.remove('nav-tab-active'));
+                    e.target.classList.add('nav-tab-active');
+
+                    const tabName = e.target.dataset.tab;
+
+                    tabContents.forEach(content => {
+                        if (content.id === 'tab-' + tabName) {
+                            content.classList.add('active');
+                        } else {
+                            content.classList.remove('active');
+                        }
+                    });
+                }
+            });
         });
         </script>
         <?php
