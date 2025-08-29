@@ -20,6 +20,7 @@ class BA_News_Sitemap {
     const TRANSIENT     = 'ba_news_sitemap_xml_cache';
     const LASTBUILD_KEY = 'ba_news_sitemap_lastbuild';
     const OPT_KEY       = 'ba_news_sitemap_options';
+    const PING_THROTTLE_KEY = 'ba_news_sitemap_ping_throttle';
 
     // Cron
     const CRON_HOOK     = 'ba_news_sitemap_cron';
@@ -35,6 +36,8 @@ class BA_News_Sitemap {
         'post_types'           => ['post'],
         'default_genres'       => ['Blog'],
         'disable_keywords'     => 0,
+        'image_license_url'    => '',
+        'enable_pings'         => 1,
         // Hardcoded values for simplicity
         'language'             => '', // Always auto-detect
         'window_hours'         => 48,
@@ -190,6 +193,10 @@ class BA_News_Sitemap {
 
         $clean['disable_keywords'] = isset( $in['disable_keywords'] ) ? 1 : 0;
 
+        $clean['image_license_url'] = isset( $in['image_license_url'] ) ? esc_url_raw( $in['image_license_url'] ) : '';
+
+        $clean['enable_pings'] = isset( $in['enable_pings'] ) ? 1 : 0;
+
         return $clean;
     }
 
@@ -248,14 +255,41 @@ class BA_News_Sitemap {
             }
         }
         
-        // Self-heal corrupt cache
         if ( ! is_string( $cached ) ) {
             delete_transient( self::TRANSIENT );
             $cached = self::empty_xml();
         }
 
-        nocache_headers();
-        header( 'Content-Type: application/xml; charset=UTF-8' );
+        $meta = get_option( self::LASTBUILD_KEY, [] );
+        $last_build_gmt = $meta['generated_at'] ?? null;
+
+        if ( $last_build_gmt ) {
+            $last_build_ts = strtotime( $last_build_gmt );
+            $etag = md5( $cached );
+
+            // Check headers and send 304 if cache is valid
+            $if_modified_since = isset( $_SERVER['HTTP_IF_MODIFIED_SINCE'] ) ? strtotime( $_SERVER['HTTP_IF_MODIFIED_SINCE'] ) : false;
+            $if_none_match = isset( $_SERVER['HTTP_IF_NONE_MATCH'] ) ? trim( $_SERVER['HTTP_IF_NONE_MATCH'], '"' ) : false;
+
+            if ( ( $if_none_match && $if_none_match === $etag ) || ( !$if_none_match && $if_modified_since && $if_modified_since >= $last_build_ts ) ) {
+                status_header( 304 );
+                exit;
+            }
+
+            // Send caching headers for a 200 response
+            status_header( 200 );
+            header( 'Content-Type: application/xml; charset=UTF-8' );
+            header( 'Last-Modified: ' . gmdate( 'D, d M Y H:i:s', $last_build_ts ) . ' GMT' );
+            header( 'ETag: "' . $etag . '"' );
+            header( 'Cache-Control: public, max-age=' . (int) $opt['cache_ttl'] );
+
+        } else {
+            // Fallback for the first build or if meta is missing
+            status_header( 200 );
+            nocache_headers();
+            header( 'Content-Type: application/xml; charset=UTF-8' );
+        }
+
         echo $cached;
         exit;
     }
@@ -437,6 +471,25 @@ class BA_News_Sitemap {
                                 Don't output the <code>&lt;news:keywords&gt;</code> tag.
                             </label>
                             <p class="description">This is recommended. Google News largely ignores this tag, and it can sometimes contain low-value terms like "Uncategorized".</p>
+                        </td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row">
+                            <label for="ba_news_sitemap_image_license_url">Default Image License URL</label>
+                        </th>
+                        <td>
+                            <input type="url" id="ba_news_sitemap_image_license_url" class="regular-text" name="<?php echo esc_attr(self::OPT_KEY); ?>[image_license_url]" value="<?php echo esc_attr( $opt['image_license_url'] ); ?>" placeholder="https://example.com/image-licenses/">
+                            <p class="description">Optional. Provide a URL to a page that describes the licenses covering the images in your articles. This can help get a "Licensable" badge in Google Images.</p>
+                        </td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row">Ping Search Engines</th>
+                        <td>
+                            <label for="ba_news_sitemap_enable_pings">
+                                <input type="checkbox" id="ba_news_sitemap_enable_pings" name="<?php echo esc_attr(self::OPT_KEY); ?>[enable_pings]" value="1" <?php checked( 1, (int) ($opt['enable_pings'] ?? 1) ); ?>>
+                                Automatically ping Google and Bing when the sitemap is updated.
+                            </label>
+                            <p class="description">This helps search engines discover your new content faster. Pings are sent at most once every 5 minutes.</p>
                         </td>
                     </tr>
                 </table>
@@ -622,10 +675,41 @@ class BA_News_Sitemap {
                 'took_ms'      => (int) round( ( microtime( true ) - $start ) * 1000 ),
             ];
             update_option( self::LASTBUILD_KEY, $meta, false );
+            self::do_pings();
         } catch ( \Throwable $e ) {
             // In case of failure, don't leave a stale cache.
             set_transient( self::TRANSIENT, self::empty_xml(), (int) $opt['cache_ttl'] );
         }
+    }
+
+    protected static function do_pings() {
+        $opt = self::get_options();
+        if ( empty( $opt['enable_pings'] ) ) {
+            return;
+        }
+
+        if ( get_transient( self::PING_THROTTLE_KEY ) ) {
+            return;
+        }
+
+        set_transient( self::PING_THROTTLE_KEY, time(), 5 * MINUTE_IN_SECONDS );
+
+        $sitemap_url = home_url( '/news-sitemap.xml' );
+        $ping_urls = [
+            'google' => 'https://www.google.com/ping?sitemap=' . urlencode( $sitemap_url ),
+            'bing'   => 'https://www.bing.com/ping?sitemap=' . urlencode( $sitemap_url ),
+        ];
+
+        $results = [];
+        foreach ( $ping_urls as $engine => $url ) {
+            $response = wp_remote_get( $url, [ 'timeout' => 10 ] );
+            $results[ $engine ] = is_wp_error( $response ) ? $response->get_error_message() : wp_remote_retrieve_response_code( $response );
+        }
+
+        update_option( 'ba_news_sitemap_lastping', [
+            'pinged_at' => gmdate( 'c' ),
+            'results'   => $results,
+        ], false );
     }
 
     /* ========= XML Builders ========= */
@@ -667,6 +751,11 @@ class BA_News_Sitemap {
             
             if ( (int) $opt['respect_noindex'] === 1 && self::is_noindex( $post_id ) ) continue;
 
+            $external_canonical = self::get_external_canonical_url( $post_id );
+            if ( $external_canonical && $external_canonical !== $loc ) {
+                continue;
+            }
+
             $lastmod = get_post_modified_time( 'c', true, $post_id );
             $pubdate = get_post_time( 'c', true, $post_id );
             $title   = wp_strip_all_tags( get_the_title( $post_id ), true );
@@ -675,14 +764,28 @@ class BA_News_Sitemap {
             $url->appendChild( $dom->createElement( 'loc', $loc ) );
             $url->appendChild( $dom->createElement( 'lastmod', $lastmod ) );
             
-            // Add image data if a featured image exists
-            if ( has_post_thumbnail( $post_id ) ) {
-                $thumb_id = get_post_thumbnail_id( $post_id );
-                $img_data = wp_get_attachment_image_src( $thumb_id, 'full' );
-                if ( $img_data && ! empty( $img_data[0] ) ) {
-                    $image = $dom->createElement('image:image');
-                    $image->appendChild( $dom->createElement('image:loc', $img_data[0]) );
-                    $url->appendChild($image);
+            // Add image data
+            $images = self::get_post_images_data( $post_id );
+            if ( ! empty( $images ) ) {
+                foreach ( $images as $img ) {
+                    $image_node = $dom->createElement('image:image');
+                    $image_node->appendChild( $dom->createElement('image:loc', $img['loc']) );
+
+                    if ( ! empty( $img['title'] ) ) {
+                        $title_node = $dom->createElement('image:title');
+                        $title_node->appendChild( $dom->createCDATASection( $img['title'] ) );
+                        $image_node->appendChild( $title_node );
+                    }
+                    if ( ! empty( $img['caption'] ) ) {
+                        $caption_node = $dom->createElement('image:caption');
+                        $caption_node->appendChild( $dom->createCDATASection( $img['caption'] ) );
+                        $image_node->appendChild( $caption_node );
+                    }
+                    if ( ! empty( $opt['image_license_url'] ) ) {
+                        $image_node->appendChild( $dom->createElement('image:license', $opt['image_license_url']) );
+                    }
+
+                    $url->appendChild( $image_node );
                 }
             }
 
@@ -738,6 +841,11 @@ class BA_News_Sitemap {
 
             if ( (int) $opt['respect_noindex'] === 1 && self::is_noindex( $post_id ) ) continue;
 
+            $external_canonical = self::get_external_canonical_url( $post_id );
+            if ( $external_canonical && $external_canonical !== $loc ) {
+                continue;
+            }
+
             $lastmod = get_post_modified_time( 'c', true, $post_id );
             $pubdate = get_post_time( 'c', true, $post_id );
             $title   = self::cdata( wp_strip_all_tags( get_the_title( $post_id ), true ) );
@@ -746,12 +854,22 @@ class BA_News_Sitemap {
             $out .= '<loc>' . esc_url( $loc ) . '</loc>';
             $out .= '<lastmod>' . esc_html( $lastmod ) . '</lastmod>';
 
-            // Add image data if a featured image exists
-            if ( has_post_thumbnail( $post_id ) ) {
-                $thumb_id = get_post_thumbnail_id( $post_id );
-                $img_data = wp_get_attachment_image_src( $thumb_id, 'full' );
-                if ( $img_data && ! empty( $img_data[0] ) ) {
-                    $out .= '<image:image><image:loc>' . esc_url($img_data[0]) . '</image:loc></image:image>';
+            // Add image data
+            $images = self::get_post_images_data( $post_id );
+            if ( ! empty( $images ) ) {
+                foreach ( $images as $img ) {
+                    $out .= '<image:image>';
+                    $out .= '<image:loc>' . esc_url( $img['loc'] ) . '</image:loc>';
+                    if ( ! empty( $img['title'] ) ) {
+                        $out .= '<image:title>' . self::cdata( $img['title'] ) . '</image:title>';
+                    }
+                    if ( ! empty( $img['caption'] ) ) {
+                        $out .= '<image:caption>' . self::cdata( $img['caption'] ) . '</image:caption>';
+                    }
+                    if ( ! empty( $opt['image_license_url'] ) ) {
+                        $out .= '<image:license>' . esc_url( $opt['image_license_url'] ) . '</image:license>';
+                    }
+                    $out .= '</image:image>';
                 }
             }
 
@@ -793,6 +911,45 @@ class BA_News_Sitemap {
     }
 
     /* ========= Data helpers ========= */
+
+    protected static function get_post_images_data( $post_id ) {
+        $images = [];
+        $image_ids = [];
+
+        // 1. Get featured image
+        if ( has_post_thumbnail( $post_id ) ) {
+            $thumb_id = get_post_thumbnail_id( $post_id );
+            if ( $thumb_id ) {
+                $image_ids[ $thumb_id ] = true; // Use keys to prevent duplicates
+            }
+        }
+
+        // 2. Get first in-content image
+        $post_content = get_post_field( 'post_content', $post_id );
+        if ( preg_match( '/<img[^>]+src=[\'"]([^\'"]+)[\'"][^>]*>/', $post_content, $matches ) ) {
+            $image_url = $matches[1];
+            $image_id = attachment_url_to_postid( $image_url );
+            if ( $image_id ) {
+                $image_ids[ $image_id ] = true;
+            }
+        }
+
+        // 3. Prepare data for each unique image ID
+        foreach ( array_keys( $image_ids ) as $id ) {
+            $img_src = wp_get_attachment_image_src( $id, 'full' );
+            if ( ! $img_src ) continue;
+
+            $caption = wp_get_attachment_caption( $id );
+
+            $images[] = [
+                'loc' => $img_src[0],
+                'title' => get_the_title( $id ),
+                'caption' => $caption ? $caption : get_post_meta( $id, '_wp_attachment_image_alt', true ),
+            ];
+        }
+
+        return $images;
+    }
 
     protected static function get_recent_posts( $opt ) {
         $post_types = (array) $opt['post_types'];
@@ -855,6 +1012,25 @@ class BA_News_Sitemap {
             }
         }
         return $validated;
+    }
+
+    protected static function get_external_canonical_url( $post_id ) {
+        $canonical_url = null;
+
+        // Yoast SEO
+        if ( defined('WPSEO_VERSION') ) {
+            $canonical_url = get_post_meta( $post_id, '_yoast_wpseo_canonical', true );
+        }
+
+        // Rank Math (overrides Yoast if both are somehow active)
+        if ( defined( 'RANK_MATH_VERSION' ) ) {
+            $rank_math_canonical = get_post_meta( $post_id, 'rank_math_canonical_url', true );
+            if ( ! empty($rank_math_canonical) ) {
+                $canonical_url = $rank_math_canonical;
+            }
+        }
+
+        return empty($canonical_url) ? null : $canonical_url;
     }
 
     /* ========= WP-CLI ========= */
